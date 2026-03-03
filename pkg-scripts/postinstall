@@ -1,0 +1,158 @@
+#!/bin/bash
+#
+# Sovereign Stack - Privileged Postinstall Script
+# This script runs as root during .pkg installation
+# It handles operations that require elevated privileges
+
+set -e  # Exit on error
+
+LOG_FILE="/var/log/sovereign-stack-install.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" | tee -a "$LOG_FILE" >&2
+    exit 1
+}
+
+log "Starting Sovereign Stack privileged setup..."
+
+# 1. Create the sovereign user if it doesn't exist
+log "Checking for sovereign user..."
+if id "sovereign" &>/dev/null; then
+    log "sovereign user already exists, skipping creation"
+else
+    log "Creating sovereign user..."
+
+    # Find next available UID starting from 501
+    NEXT_UID=501
+    while id -u $NEXT_UID &>/dev/null; do
+        NEXT_UID=$((NEXT_UID + 1))
+    done
+
+    # Create the user with sysadminctl (macOS 10.10+)
+    # Note: This creates a user without admin privileges
+    if ! sysadminctl -addUser sovereign -UID "$NEXT_UID" -fullName "Sovereign Stack" -password - <<< "$(openssl rand -base64 32)" &>/dev/null; then
+        error "Failed to create sovereign user"
+    fi
+
+    log "sovereign user created with UID $NEXT_UID"
+fi
+
+# 2. Create directory structure with correct ownership
+log "Creating directory structure..."
+
+SOVEREIGN_HOME="/Users/sovereign"
+SOVEREIGN_STACK="$SOVEREIGN_HOME/sovereign-stack"
+SHARED_DEPLOY="/Users/Shared/sovereign-deploy"
+
+# Create sovereign-stack directory
+if [ ! -d "$SOVEREIGN_STACK" ]; then
+    mkdir -p "$SOVEREIGN_STACK"/{logs,data,configs}
+    chown -R sovereign:staff "$SOVEREIGN_STACK"
+    chmod -R 755 "$SOVEREIGN_STACK"
+    log "Created $SOVEREIGN_STACK"
+else
+    log "$SOVEREIGN_STACK already exists"
+fi
+
+# Create shared deploy directory
+if [ ! -d "$SHARED_DEPLOY" ]; then
+    mkdir -p "$SHARED_DEPLOY"
+    chown root:staff "$SHARED_DEPLOY"
+    chmod 1777 "$SHARED_DEPLOY"  # Sticky bit for shared access
+    log "Created $SHARED_DEPLOY with sticky bit"
+else
+    log "$SHARED_DEPLOY already exists"
+fi
+
+# 3. Configure macOS power settings (prevent sleep during operations)
+log "Configuring power settings..."
+pmset -a displaysleep 10 || log "Warning: Could not set display sleep"
+pmset -a sleep 0 || log "Warning: Could not disable system sleep"
+pmset -a disksleep 0 || log "Warning: Could not disable disk sleep"
+
+# 4. Enable macOS firewall
+log "Configuring firewall..."
+if /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate | grep -q "disabled"; then
+    /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
+    log "Firewall enabled"
+else
+    log "Firewall already enabled"
+fi
+
+# Enable stealth mode (don't respond to ping/ICMP)
+/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on
+log "Stealth mode enabled"
+
+# 5. Disable mDNS advertising (privacy enhancement)
+log "Disabling mDNS advertising..."
+defaults write /Library/Preferences/com.apple.mDNSResponder.plist NoMulticastAdvertisements -bool YES
+log "mDNS advertising disabled"
+
+# 6. Set secure permissions on the sovereign user home
+log "Setting secure permissions..."
+chmod 700 "$SOVEREIGN_HOME" 2>/dev/null || log "Warning: Could not set home permissions"
+
+# 7. Create LaunchDaemons directory if needed
+LAUNCH_DAEMONS="/Library/LaunchDaemons"
+if [ ! -d "$LAUNCH_DAEMONS" ]; then
+    mkdir -p "$LAUNCH_DAEMONS"
+    chmod 755 "$LAUNCH_DAEMONS"
+fi
+
+# 8. Configure Docker socket permissions helper
+# This will be used to give sovereign user access to Docker Desktop socket
+DOCKER_HELPER_PLIST="$LAUNCH_DAEMONS/com.sovereign.docker-socket-helper.plist"
+cat > "$DOCKER_HELPER_PLIST" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sovereign.docker-socket-helper</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>
+        # Wait for Docker socket to exist
+        while [ ! -S /var/run/docker.sock ]; do
+            sleep 2
+        done
+        # Set permissions so sovereign can access it
+        chmod 666 /var/run/docker.sock
+        </string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>PathState</key>
+        <dict>
+            <key>/var/run/docker.sock</key>
+            <true/>
+        </dict>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/var/log/docker-socket-helper.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/docker-socket-helper.log</string>
+</dict>
+</plist>
+EOF
+
+chmod 644 "$DOCKER_HELPER_PLIST"
+log "Docker socket helper LaunchDaemon created"
+
+# 9. Final ownership check
+log "Verifying ownership..."
+chown -R sovereign:staff "$SOVEREIGN_STACK"
+chown -R sovereign:staff "$SOVEREIGN_HOME/Library" 2>/dev/null || true
+
+log "Privileged setup completed successfully!"
+log "Next steps: Run the Sovereign Stack app to complete setup"
+
+exit 0
