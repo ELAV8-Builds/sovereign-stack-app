@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import SetupWizard from "./pages/SetupWizard";
 import Dashboard from "./pages/Dashboard";
+import Settings from "./pages/Settings";
 import "./App.css";
 
-type AppView = "setup" | "dashboard";
+type AppView = "setup" | "dashboard" | "settings";
 
 function App() {
   const [view, setView] = useState<AppView>("setup");
@@ -26,7 +28,7 @@ function App() {
     }
   };
 
-  // Allow manual view switching
+  // Allow manual view switching via hash
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.slice(1);
@@ -34,6 +36,8 @@ function App() {
         setView("dashboard");
       } else if (hash === "setup") {
         setView("setup");
+      } else if (hash === "settings") {
+        setView("settings");
       }
     };
 
@@ -44,10 +48,13 @@ function App() {
   }, []);
 
   return (
-    <div className="app">
-      {view === "setup" && <SetupWizard />}
-      {view === "dashboard" && <Dashboard />}
-    </div>
+    <ErrorBoundary>
+      <div className="app">
+        {view === "setup" && <SetupWizard />}
+        {view === "dashboard" && <Dashboard />}
+        {view === "settings" && <Settings />}
+      </div>
+    </ErrorBoundary>
   );
 }
 

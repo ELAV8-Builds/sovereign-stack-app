@@ -132,12 +132,20 @@ export default function Dashboard() {
             <h1 className="text-4xl font-bold mb-2">Sovereign Stack Dashboard</h1>
             <p className="text-slate-400">Manage and monitor your services</p>
           </div>
-          <button
-            onClick={fetchServicesStatus}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
-          >
-            Refresh
-          </button>
+          <div className="flex space-x-3">
+            <a
+              href="#settings"
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded font-medium transition"
+            >
+              ⚙️ Settings
+            </a>
+            <button
+              onClick={fetchServicesStatus}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+            >
+              ↻ Refresh
+            </button>
+          </div>
         </div>
 
         {/* Error Display */}
