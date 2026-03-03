@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sovereign Stack - Settings</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+  <!-- Header -->
+  <div class="border-b border-slate-700 bg-slate-800/50 backdrop-blur">
+    <div class="container mx-auto px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold">Settings</h1>
+          <p class="text-sm text-slate-400">Configure Sovereign Stack</p>
+        </div>
+        <button class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded font-medium transition">
+          ← Back to Dashboard
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mx-auto px-6 py-8 max-w-4xl">
+    <div class="space-y-6">
+      <!-- System Information -->
+      <div class="bg-slate-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">System Information</h2>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <div class="text-sm text-slate-400">macOS Version</div>
+            <div class="font-semibold">14.2.1</div>
+          </div>
+          <div>
+            <div class="text-sm text-slate-400">Architecture</div>
+            <div class="font-semibold">arm64</div>
+          </div>
+          <div>
+            <div class="text-sm text-slate-400">Hostname</div>
+            <div class="font-semibold">MacBook-Pro.local</div>
+          </div>
+          <div>
+            <div class="text-sm text-slate-400">Current User</div>
+            <div class="font-semibold">admin</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Keys -->
+      <div class="bg-slate-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">API Keys</h2>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-2">
+              Anthropic API Key
+            </label>
+            <div class="flex space-x-2">
+              <input
+                type="password"
+                value="sk-ant-api03-..."
+                class="flex-1 bg-slate-700 border border-slate-600 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition">
+                Save
+              </button>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">
+              Used by LiteLLM for Claude API access
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Service Ports -->
+      <div class="bg-slate-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Service Ports</h2>
+        <div class="space-y-3">
+          <div class="flex justify-between items-center py-2 border-b border-slate-700">
+            <span class="font-medium">LiteLLM</span>
+            <span class="text-slate-400">Port 4000</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-slate-700">
+            <span class="font-medium">Ollama</span>
+            <span class="text-slate-400">Port 11434</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-slate-700">
+            <span class="font-medium">memU</span>
+            <span class="text-slate-400">Port 8090</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-slate-700">
+            <span class="font-medium">PostgreSQL</span>
+            <span class="text-slate-400">Port 5432</span>
+          </div>
+          <div class="flex justify-between items-center py-2 border-b border-slate-700">
+            <span class="font-medium">Temporal</span>
+            <span class="text-slate-400">Port 7233</span>
+          </div>
+          <div class="flex justify-between items-center py-2">
+            <span class="font-medium">AnythingLLM</span>
+            <span class="text-slate-400">Port 3001</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div class="bg-slate-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">About</h2>
+        <div class="space-y-2 text-sm">
+          <p><span class="text-slate-400">App Version:</span> <span class="font-semibold">0.1.0</span></p>
+          <p><span class="text-slate-400">Tauri Version:</span> <span class="font-semibold">2.0</span></p>
+          <p class="pt-4 text-slate-400">
+            Sovereign Stack Control Panel - Manage your personal AI infrastructure
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
