@@ -8,19 +8,8 @@ interface ServiceInfo {
   runtime: string;
 }
 
-// Mock services for development
-const MOCK_SERVICES: ServiceInfo[] = [
-  { name: "nanoclaw", port: 18789, status: "Running", runtime: "Docker" },
-  { name: "litellm", port: 4000, status: "Running", runtime: "Docker" },
-  { name: "ollama", port: 11434, status: "Running", runtime: "Native" },
-  { name: "memu", port: 8090, status: "Running", runtime: "Docker" },
-  { name: "postgresql", port: 5432, status: "Running", runtime: "Docker" },
-  { name: "temporal", port: 7233, status: "Stopped", runtime: "Docker" },
-  { name: "anythingllm", port: 3001, status: "Running", runtime: "Docker" },
-];
-
 export function UnifiedDashboard() {
-  const [services, setServices] = useState<ServiceInfo[]>(MOCK_SERVICES);
+  const [services, setServices] = useState<ServiceInfo[]>([]);
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [logs, setLogs] = useState<string>("");
   const [logsLoading, setLogsLoading] = useState(false);
@@ -36,7 +25,7 @@ export function UnifiedDashboard() {
       const data = await safeInvoke<ServiceInfo[]>("get_services_status");
       if (Array.isArray(data)) setServices(data);
     } catch {
-      // Use mock data
+      // Backend not available — services list stays empty
     }
   };
 
@@ -94,11 +83,7 @@ export function UnifiedDashboard() {
       });
       setLogs(typeof logsData === "string" ? logsData : "");
     } catch {
-      setLogs(
-        `[mock] ${serviceName} started successfully\n[mock] Listening on port ${
-          services.find((s) => s.name === serviceName)?.port || "???"
-        }\n[mock] Health check passed\n[mock] Ready to accept connections`
-      );
+      setLogs(`Unable to fetch logs for ${serviceName} — Tauri backend not available.`);
     } finally {
       setLogsLoading(false);
     }
@@ -165,8 +150,8 @@ export function UnifiedDashboard() {
             <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">
               Cost
             </div>
-            <div className="text-2xl font-bold text-white">$3.47</div>
-            <div className="text-xs text-slate-500 mt-1">today</div>
+            <div className="text-2xl font-bold text-white text-slate-500">—</div>
+            <div className="text-xs text-slate-500 mt-1">connect to view</div>
           </div>
         </div>
 
@@ -179,6 +164,17 @@ export function UnifiedDashboard() {
             <span>Port</span>
             <span className="text-right">Actions</span>
           </div>
+
+          {/* Empty state */}
+          {services.length === 0 && (
+            <div className="px-5 py-12 text-center">
+              <div className="text-3xl mb-3">🔌</div>
+              <p className="text-sm text-slate-400 mb-1">No services detected</p>
+              <p className="text-xs text-slate-600">
+                Make sure Docker is running and the Sovereign Stack is started.
+              </p>
+            </div>
+          )}
 
           {/* Service rows */}
           {services.map((service) => (

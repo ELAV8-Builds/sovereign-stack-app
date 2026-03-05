@@ -59,7 +59,7 @@ export function ChatInterface() {
         const status = await safeInvoke<ChannelStatus>("get_channel_status");
         setChannels(status);
       } catch {
-        // Mock: no channels connected yet
+        // Channel status not available — channels shown as disconnected
       }
     };
     checkChannels();
@@ -143,26 +143,23 @@ export function ChatInterface() {
         setMessages((prev) => [...prev, agentMsg]);
         return;
       } catch {
-        // Both LiteLLM and Tauri failed — show error + mock fallback
+        // Both LiteLLM and Tauri failed
       }
 
-      // Show connection warning only once
+      // Show connection warning
       if (llmAvailable !== false) {
         setLlmAvailable(false);
-        toast.error(
-          "AI not connected — LiteLLM is not running. Showing preview responses.",
-          { duration: 5000 }
-        );
       }
 
-      const mockMsg: ChatMessage = {
-        id: `agent-${Date.now()}`,
+      const errorMsg: ChatMessage = {
+        id: `error-${Date.now()}`,
         role: "agent",
-        content: getMockResponse(trimmed),
+        content: `I can't respond right now — the AI backend isn't reachable.\n\nTo fix this:\n1. Make sure Docker Desktop is running\n2. Check that the Sovereign Stack is started: \`docker compose up -d\`\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\n\nYou can restart the setup from Settings > Advanced > Restart Onboarding.`,
         timestamp: new Date(),
-        status: "sent",
+        status: "error",
       };
-      setMessages((prev) => [...prev, mockMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
+      toast.error("AI not connected — check that Docker stack is running", { duration: 5000 });
     }
   };
 
@@ -376,59 +373,3 @@ export function ChatInterface() {
   );
 }
 
-// Mock responses for development
-function getMockResponse(input: string): string {
-  const lower = input.toLowerCase();
-
-  if (lower.includes("service") || lower.includes("status") || lower.includes("running")) {
-    return `All services are looking good! Here's the rundown:
-
-● *nanoclaw* — Running (port 18789)
-● *litellm* — Running (port 4000)
-● *ollama* — Running (port 11434)
-● *memu* — Running (port 8090)
-● *postgresql* — Running (port 5432)
-○ *temporal* — Stopped (port 7233)
-● *anythingllm* — Running (port 3001)
-
-6/7 running. Temporal is stopped — want me to start it?`;
-  }
-
-  if (lower.includes("start") || lower.includes("restart")) {
-    return `Done! Service restarted successfully. ✅
-
-It took about 3 seconds to come back up. Health check passed — all endpoints responding.`;
-  }
-
-  if (lower.includes("cost") || lower.includes("spend") || lower.includes("money")) {
-    return `Here's your usage today:
-
-💰 *Today:* $3.47
-📊 *This week:* $18.92
-📅 *This month:* $67.34
-
-Breakdown by model:
-• Opus 4.6: $2.10 (45 requests)
-• Sonnet 4.5: $0.89 (23 requests)
-• Haiku: $0.48 (234 requests)
-
-You're well within normal range. ☕ Less than a coffee.`;
-  }
-
-  if (lower.includes("help") || lower.includes("what can")) {
-    return `I can help with:
-
-• *Check services* — "Are all services running?"
-• *Manage services* — "Restart litellm" / "Stop temporal"
-• *View logs* — "Show me nanoclaw logs"
-• *Check costs* — "How much have I spent today?"
-• *Run commands* — "Run a health check"
-• *Answer questions* — Anything about your stack
-
-Just ask naturally — I'll figure it out.`;
-  }
-
-  return `Got it! I'm working on that now. Give me a moment...
-
-I've processed your request. The task completed successfully. Let me know if you need anything else!`;
-}

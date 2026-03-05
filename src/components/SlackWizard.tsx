@@ -142,14 +142,10 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
     } catch (err) {
       if (isTauri() && !isNotImplemented(err)) console.error('Connection test failed:', err);
       if (isNotImplemented(err)) {
-        // Backend not ready — simulate success with mock channels so user can continue setup
-        setChannels([
-          { id: 'mock-general', name: 'general' },
-          { id: 'mock-random', name: 'random' },
-        ]);
-        setTestSuccess(true);
-        setTestError('');
-        toast('Slack backend not ready yet — using preview mode', { icon: '🔜' });
+        // Backend not ready — show honest error, no fake channels
+        setTestError('Slack backend is not ready yet. Start the Docker stack first, then try again.');
+        setTestSuccess(false);
+        toast('Slack backend not available — start Docker stack first', { icon: '⚠️' });
       } else {
         setTestError(friendlyError(err, 'Connection failed. Please check your tokens and try again.'));
         setTestSuccess(false);

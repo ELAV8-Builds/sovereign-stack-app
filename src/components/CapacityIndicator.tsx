@@ -86,25 +86,7 @@ export function CapacityIndicator() {
       setLoading(false);
     } catch (err) {
       if (isTauri()) console.error('Failed to load capacity info:', err);
-
-      // Use mock data for development
-      setHardware({
-        total_ram_gb: 16,
-        available_ram_gb: 12,
-        cpu_cores: 8,
-        cpu_type: 'Apple Silicon M1 Pro',
-        gpu_vram_gb: 16,
-        architecture: 'arm64'
-      });
-
-      setCapacity({
-        max_projects: 3,
-        recommended_projects: 2,
-        tier: 'standard',
-        overhead_gb: 3,
-        per_project_gb: 2
-      });
-
+      // No mock data — hardware/capacity stay null, UI shows empty state
       setLoading(false);
     }
   };

@@ -130,22 +130,8 @@ export function CostTracker() {
       setLoading(false);
     } catch (err) {
       if (isTauri()) console.error('Failed to load usage stats:', err);
-
-      // Use realistic mock data for development
-      setStats({
-        today_cost: 3.47,
-        week_cost: 18.92,
-        month_cost: 67.34,
-        tier_requests: {
-          trivial: 234,
-          light: 89,
-          coder: 45,
-          medium: 23,
-          heavy: 7,
-        },
-      });
-
-      setError('Using mock data (backend not available)');
+      // No mock data — stats stays null, UI shows empty state
+      setError('Usage stats not available — connect to the backend to view real costs');
       setLoading(false);
     }
   };

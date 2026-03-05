@@ -48,157 +48,8 @@ interface CompoundStats {
   costSaved: string;
 }
 
-// Mock data generator
-function getMockEntries(): CompoundEntry[] {
-  return [
-    {
-      id: 'compound-1709578800000',
-      timestamp: '2026-03-04T16:00:00Z',
-      problem: {
-        description: 'Build failed due to esbuild platform mismatch',
-        errorMessages: [
-          'Cannot find module @rollup/rollup-linux-arm64-gnu',
-          'esbuild installed for darwin-arm64 but running on linux-arm64'
-        ],
-        affectedFiles: ['package.json', 'node_modules']
-      },
-      rootCause: {
-        primary: 'node_modules copied from macOS to Linux container',
-        underlying: 'esbuild uses platform-specific binaries',
-        factors: [
-          'Docker volume mount preserves host node_modules',
-          'No rebuild step in container entry point'
-        ]
-      },
-      solution: {
-        description: 'Remove node_modules and reinstall in target environment',
-        commands: ['rm -rf node_modules package-lock.json', 'npm install'],
-        codeSnippets: [],
-        verification: ['npm run build should complete without errors']
-      },
-      prevention: {
-        strategies: ['Add rebuild step to Dockerfile entry point'],
-        guardrails: [
-          'Add npm install to container startup script',
-          'Use .dockerignore to exclude node_modules'
-        ],
-        automation: ['Script to detect native modules and rebuild automatically']
-      },
-      metadata: {
-        tags: ['build', 'docker', 'node', 'esbuild'],
-        category: 'build-tooling',
-        technology: ['Node.js', 'Docker', 'esbuild'],
-        domain: 'frontend-build',
-        severity: 'medium',
-        searchKeywords: ['esbuild platform error', 'node_modules container']
-      },
-      performance: {
-        timeToIdentify: '30 seconds',
-        timeToFix: '2 minutes',
-        totalCost: '$0.35',
-        tierUsed: 'heavy'
-      }
-    },
-    {
-      id: 'compound-1709575200000',
-      timestamp: '2026-03-04T15:00:00Z',
-      problem: {
-        description: 'TypeScript errors in Settings component after adding new import',
-        errorMessages: ['Cannot find module ModelConfiguration'],
-        affectedFiles: ['Settings.tsx']
-      },
-      rootCause: {
-        primary: 'Import path missing file extension',
-        underlying: 'TypeScript strict mode requires explicit extensions',
-        factors: ['New component not yet compiled', 'Module resolution strict']
-      },
-      solution: {
-        description: 'Add correct import statement with extension',
-        commands: [],
-        codeSnippets: [
-          'import { ModelConfiguration } from "../components/ModelConfiguration";'
-        ],
-        verification: ['tsc should complete without errors']
-      },
-      prevention: {
-        strategies: ['Use IDE auto-import feature'],
-        guardrails: ['Enable TypeScript import helpers', 'Use ESLint import plugin'],
-        automation: ['Configure VSCode to auto-add extensions']
-      },
-      metadata: {
-        tags: ['typescript', 'imports', 'module-resolution'],
-        category: 'build-tooling',
-        technology: ['TypeScript', 'React'],
-        domain: 'frontend-build',
-        severity: 'low',
-        searchKeywords: ['typescript cannot find module', 'import error']
-      },
-      performance: {
-        timeToIdentify: '10 seconds',
-        timeToFix: '30 seconds',
-        totalCost: '$0.15',
-        tierUsed: 'medium'
-      }
-    },
-    {
-      id: 'compound-1709571600000',
-      timestamp: '2026-03-04T14:00:00Z',
-      problem: {
-        description: 'Agent stalled after 2 hours with no deliverable',
-        errorMessages: ['[Request interrupted by user]'],
-        affectedFiles: []
-      },
-      rootCause: {
-        primary: 'Background agents consistently stall on complex tasks',
-        underlying: 'No progress tracking or timeout handling',
-        factors: ['Long-running tasks', 'No intermediate checkpoints', 'Silent failures']
-      },
-      solution: {
-        description: 'Implement direct after 2-hour timeout',
-        commands: [],
-        codeSnippets: [],
-        verification: ['Component created successfully', 'Build passes']
-      },
-      prevention: {
-        strategies: ['Set 2-hour hard timeout for background agents'],
-        guardrails: [
-          'Monitor agent progress every 30 minutes',
-          'Require progress updates from agents'
-        ],
-        automation: ['Auto-fallback to direct implementation after timeout']
-      },
-      metadata: {
-        tags: ['agents', 'timeout', 'reliability'],
-        category: 'agent-management',
-        technology: ['Agent SDK', 'Background tasks'],
-        domain: 'agent-orchestration',
-        severity: 'high',
-        searchKeywords: ['agent stalled', 'no output', 'background task timeout']
-      },
-      performance: {
-        timeToIdentify: '2 hours',
-        timeToFix: '30 minutes',
-        totalCost: '$0.50',
-        tierUsed: 'heavy'
-      }
-    }
-  ];
-}
-
-function getMockStats(): CompoundStats {
-  return {
-    totalLearnings: 47,
-    last24h: 3,
-    commonCategories: [
-      { category: 'build-tooling', count: 15 },
-      { category: 'agent-management', count: 12 },
-      { category: 'typescript', count: 8 },
-      { category: 'docker', count: 7 },
-      { category: 'ui-components', count: 5 }
-    ],
-    costSaved: '$8,450'
-  };
-}
+// No mock data — stats and entries come from the backend only.
+// Shows empty state until compound capture backend is connected.
 
 export function CompoundCapture() {
   const [stats, setStats] = useState<CompoundStats | null>(null);
@@ -221,10 +72,8 @@ export function CompoundCapture() {
       setStats(statsData);
       setRecentEntries(entries);
     } catch (err) {
-      // Fallback to mock data
-      if (isTauri()) console.warn('Failed to load compound data, using mock:', err);
-      setStats(getMockStats());
-      setRecentEntries(getMockEntries());
+      if (isTauri()) console.warn('Failed to load compound data:', err);
+      // No mock data — stats/entries stay null/empty, UI shows empty state
     }
   };
 
@@ -240,9 +89,7 @@ export function CompoundCapture() {
       await loadData();
     } catch (err) {
       if (isTauri()) console.warn('Failed to trigger compound capture:', err);
-      // Mock success for now
-      setCaptureSuccess(true);
-      setTimeout(() => setCaptureSuccess(false), 3000);
+      // Show real error — backend not available
     } finally {
       setCapturing(false);
     }
@@ -296,6 +143,15 @@ export function CompoundCapture() {
       </div>
 
       {/* Stats Grid */}
+      {!stats && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 text-center">
+          <div className="text-4xl mb-3">🧠</div>
+          <p className="text-slate-300 font-medium mb-1">No learnings captured yet</p>
+          <p className="text-sm text-slate-500">
+            Compound mode data will appear here once the backend is connected and learnings are captured.
+          </p>
+        </div>
+      )}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">

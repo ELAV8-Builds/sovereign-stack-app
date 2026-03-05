@@ -26,10 +26,9 @@ export function WhatsAppConnect({ onConnected, compact = false }: WhatsAppConnec
       setState("waiting");
       setCountdown(60);
     } catch {
-      // Mock QR for development
-      setQrData("MOCK_QR_DATA_FOR_DEVELOPMENT");
-      setState("waiting");
-      setCountdown(60);
+      // Backend not available — show error, no fake QR
+      setError("WhatsApp backend not available. Start the Docker stack first.");
+      setState("error");
     }
   };
 
@@ -49,7 +48,7 @@ export function WhatsAppConnect({ onConnected, compact = false }: WhatsAppConnec
           clearInterval(interval);
         }
       } catch {
-        // Mock: simulate connection after some time in dev
+        // Backend unavailable — will retry on next interval
       }
     }, 2000);
 

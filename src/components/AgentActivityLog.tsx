@@ -28,39 +28,6 @@ const AGENT_COLORS: Record<string, string> = {
   agent: "text-cyan-400",
 };
 
-// Mock activity data generator
-function generateMockActivity(): ActivityEntry {
-  const activities: Omit<ActivityEntry, "id" | "timestamp">[] = [
-    { agent: "nanoclaw", action: "MSG_RECV", detail: "Incoming message from WhatsApp group 'Work Team'", level: "info" },
-    { agent: "litellm", action: "ROUTE", detail: "Request → opus-4.6 (heavy tier) — complexity: high", level: "info" },
-    { agent: "litellm", action: "RESPONSE", detail: "Generated 847 tokens in 2.3s — cost: $0.04", level: "success" },
-    { agent: "nanoclaw", action: "MSG_SEND", detail: "Response delivered to WhatsApp (342ms)", level: "success" },
-    { agent: "memu", action: "STORE", detail: "Memorized conversation context — 3 entries indexed", level: "info" },
-    { agent: "ollama", action: "EMBED", detail: "Generated embedding for semantic search (nomic-embed-text)", level: "info" },
-    { agent: "agent", action: "THINK", detail: "Analyzing user intent... classification: task_management", level: "thinking" },
-    { agent: "agent", action: "THINK", detail: "Planning response... 2 tool calls needed", level: "thinking" },
-    { agent: "system", action: "HEALTH", detail: "Health check passed — 6/7 services operational", level: "success" },
-    { agent: "system", action: "METRIC", detail: "CPU: 23% | RAM: 4.2GB/16GB | Disk: 45GB free", level: "info" },
-    { agent: "litellm", action: "CACHE", detail: "Cache hit — returning cached response (saved $0.02)", level: "success" },
-    { agent: "nanoclaw", action: "QUEUE", detail: "Processing message queue — 0 pending, 147 today", level: "info" },
-    { agent: "agent", action: "TOOL", detail: "Executing: get_services_status — result: 6 running", level: "info" },
-    { agent: "memu", action: "RETRIEVE", detail: "Semantic search: 'deployment config' — 5 results (0.89 relevance)", level: "info" },
-    { agent: "system", action: "WARN", detail: "Temporal service not responding — retry 1/3", level: "warning" },
-    { agent: "litellm", action: "FALLBACK", detail: "Primary model timeout — falling back to sonnet-4.5", level: "warning" },
-    { agent: "nanoclaw", action: "WEBHOOK", detail: "Slack event received: message.channels — #general", level: "info" },
-    { agent: "agent", action: "THINK", detail: "Evaluating compound learning trigger... score: 0.72 (below threshold)", level: "thinking" },
-    { agent: "ollama", action: "INFER", detail: "Local inference complete — 128 tokens, 45ms", level: "success" },
-    { agent: "system", action: "BACKUP", detail: "Auto-backup completed — 2.3MB config snapshot", level: "success" },
-  ];
-
-  const activity = activities[Math.floor(Math.random() * activities.length)];
-  return {
-    ...activity,
-    id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    timestamp: new Date(),
-  };
-}
-
 export function AgentActivityLog() {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [isPaused, setIsPaused] = useState(false);
@@ -76,43 +43,41 @@ export function AgentActivityLog() {
     return () => clearInterval(interval);
   }, []);
 
-  // Generate initial entries
+  // Fetch real activity entries from backend
   useEffect(() => {
-    const initial: ActivityEntry[] = [];
-    for (let i = 0; i < 15; i++) {
-      const entry = generateMockActivity();
-      entry.timestamp = new Date(Date.now() - (15 - i) * 3000);
-      initial.push(entry);
-    }
-    setEntries(initial);
+    const fetchInitial = async () => {
+      try {
+        const realEntries = await safeInvoke<ActivityEntry[]>("get_agent_activity", { limit: 50 });
+        if (realEntries && realEntries.length > 0) {
+          setEntries(realEntries.map(e => ({ ...e, timestamp: new Date(e.timestamp) })));
+        }
+      } catch {
+        // Backend not available — activity feed stays empty
+      }
+    };
+    fetchInitial();
   }, []);
 
-  // Live feed — add new entries
+  // Live feed — poll for new entries
   useEffect(() => {
     if (isPaused) return;
 
-    // Try real backend first
-    const fetchReal = async () => {
+    const interval = setInterval(async () => {
       try {
-        const realEntries = await safeInvoke<ActivityEntry[]>("get_agent_activity", { limit: 1 });
+        const realEntries = await safeInvoke<ActivityEntry[]>("get_agent_activity", { limit: 5 });
         if (realEntries && realEntries.length > 0) {
-          setEntries((prev) => [...prev.slice(-200), ...realEntries]);
-          return true;
+          setEntries((prev) => {
+            const existingIds = new Set(prev.map(e => e.id));
+            const newOnes = realEntries
+              .filter(e => !existingIds.has(e.id))
+              .map(e => ({ ...e, timestamp: new Date(e.timestamp) }));
+            return newOnes.length > 0 ? [...prev.slice(-200), ...newOnes] : prev;
+          });
         }
       } catch {
-        // Fall through to mock
+        // Backend not available — no new entries
       }
-      return false;
-    };
-
-    const interval = setInterval(async () => {
-      const gotReal = await fetchReal();
-      if (!gotReal) {
-        // Use mock data
-        const newEntry = generateMockActivity();
-        setEntries((prev) => [...prev.slice(-200), newEntry]);
-      }
-    }, 1500 + Math.random() * 2000); // Random interval 1.5-3.5s for natural feel
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [isPaused]);
@@ -289,7 +254,7 @@ export function AgentActivityLog() {
         </div>
         <div className="flex items-center gap-1">
           <span className="text-[10px] font-mono text-slate-600">
-            SOVEREIGN STACK v0.3
+            SOVEREIGN STACK v0.4
           </span>
         </div>
       </div>

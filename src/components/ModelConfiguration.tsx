@@ -27,133 +27,8 @@ interface ModelConfig {
   };
 }
 
-// Mock data generator using LiteLLM tier names
-function getMockConfig(tier: BudgetTier): ModelConfig {
-  const configs: Record<BudgetTier, ModelConfig> = {
-    [BudgetTier.PERFORMANCE]: {
-      tier: BudgetTier.PERFORMANCE,
-      estimatedMonthlyCost: 2500,
-      lanes: {
-        architect: {
-          primary: 'heavy',        // Opus 4.6
-          backup: 'crosscheck',    // GPT-5.2
-          failover: 'heavy'
-        },
-        engineer: {
-          primary: 'heavy',        // UPGRADED: Opus 4.6 (not coder/Sonnet!)
-          backup: 'codex',         // GPT-5.2 Codex
-          failover: 'heavy'
-        },
-        copilot: {
-          primary: 'medium',       // UPGRADED: Sonnet (not light/Haiku!)
-          failover: 'heavy'
-        },
-        planning: {
-          primary: 'heavy',        // Opus 4.6
-          backup: 'crosscheck',    // GPT-5.2
-          failover: 'heavy'
-        },
-        visual: {
-          primary: 'creative',     // Gemini 3.1 Pro
-          backup: 'heavy',         // Opus 4.6
-          failover: 'heavy'
-        },
-        safety: {
-          primary: 'critic',       // GPT-5.2
-          backup: 'heavy',         // Opus 4.6
-          failover: 'heavy'
-        },
-        compound: {
-          primary: 'heavy',        // NEW: Opus 4.6 for knowledge capture
-          backup: 'crosscheck',    // GPT-5.2
-          failover: 'heavy'
-        }
-      }
-    },
-    [BudgetTier.ULTRA]: {
-      tier: BudgetTier.ULTRA,
-      estimatedMonthlyCost: 5000,
-      lanes: {
-        architect: {
-          primary: 'heavy',        // Opus 4.6
-          backup: 'crosscheck',    // GPT-5.2
-          failover: 'heavy'
-        },
-        engineer: {
-          primary: 'heavy',        // Opus 4.6
-          backup: 'codex',         // GPT-5.2 Codex
-          failover: 'heavy'
-        },
-        copilot: {
-          primary: 'heavy',        // ULTRA: Even copilot uses Opus!
-          failover: 'heavy'
-        },
-        planning: {
-          primary: 'heavy',        // Opus 4.6
-          backup: 'crosscheck',    // GPT-5.2
-          failover: 'heavy'
-        },
-        visual: {
-          primary: 'creative',     // Gemini 3.1 Pro
-          backup: 'heavy',         // Opus 4.6
-          failover: 'heavy'
-        },
-        safety: {
-          primary: 'critic',       // GPT-5.2
-          backup: 'heavy',         // Opus 4.6
-          failover: 'heavy'
-        },
-        compound: {
-          primary: 'heavy',        // Opus 4.6
-          backup: 'crosscheck',    // GPT-5.2
-          failover: 'heavy'
-        }
-      }
-    },
-    [BudgetTier.CUSTOM]: {
-      tier: BudgetTier.CUSTOM,
-      estimatedMonthlyCost: 3000,
-      lanes: {
-        architect: {
-          primary: 'heavy',
-          backup: 'crosscheck',
-          failover: 'heavy'
-        },
-        engineer: {
-          primary: 'heavy',
-          backup: 'codex',
-          failover: 'heavy'
-        },
-        copilot: {
-          primary: 'medium',
-          failover: 'heavy'
-        },
-        planning: {
-          primary: 'heavy',
-          backup: 'crosscheck',
-          failover: 'heavy'
-        },
-        visual: {
-          primary: 'creative',
-          backup: 'heavy',
-          failover: 'heavy'
-        },
-        safety: {
-          primary: 'critic',
-          backup: 'heavy',
-          failover: 'heavy'
-        },
-        compound: {
-          primary: 'heavy',
-          backup: 'crosscheck',
-          failover: 'heavy'
-        }
-      }
-    }
-  };
-
-  return configs[tier];
-}
+// Note: Model configuration will be loaded from the backend when available.
+// No mock configs — shows empty/loading state until backend is connected.
 
 export function ModelConfiguration() {
   const [selectedTier, setSelectedTier] = useState<BudgetTier>(BudgetTier.PERFORMANCE);
@@ -171,10 +46,9 @@ export function ModelConfiguration() {
       setConfig(cfg);
       setSelectedTier(cfg.tier);
     } catch (err) {
-      if (isTauri()) console.warn('Failed to load config from backend, using mock data:', err);
+      if (isTauri()) console.warn('Failed to load config from backend:', err);
+      // No mock data — config stays null, UI shows empty state
       const savedTier = localGet<BudgetTier>('model_tier', BudgetTier.PERFORMANCE);
-      const mockConfig = getMockConfig(savedTier);
-      setConfig(mockConfig);
       setSelectedTier(savedTier);
     }
   };
@@ -192,10 +66,9 @@ export function ModelConfiguration() {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      if (isTauri()) console.warn('Failed to save tier to backend, using mock data:', err);
+      if (isTauri()) console.warn('Failed to save tier to backend:', err);
       localSet('model_tier', tier);
-      const mockConfig = getMockConfig(tier);
-      setConfig(mockConfig);
+      // Tier preference saved locally — config details available when backend connects
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } finally {
@@ -323,6 +196,16 @@ export function ModelConfiguration() {
       </div>
 
       {/* Current Configuration Display */}
+      {!config && (
+        <div className="bg-slate-700 border border-slate-600 rounded-lg p-6 text-center">
+          <div className="text-4xl mb-3">⚙️</div>
+          <p className="text-slate-300 font-medium mb-1">Configuration not loaded</p>
+          <p className="text-sm text-slate-500">
+            Model lane details will appear here once the backend is connected.
+            Your tier preference has been saved locally.
+          </p>
+        </div>
+      )}
       {config && (
         <div className="bg-slate-700 border border-slate-600 rounded-lg p-6">
           <h3 className="font-semibold text-lg mb-4 flex items-center space-x-2">

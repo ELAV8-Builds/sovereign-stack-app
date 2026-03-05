@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { safeInvoke } from "@/lib/tauri";
+import { safeInvoke, localSet } from "@/lib/tauri";
 import { AgentNaming } from "../components/AgentNaming";
 import { CapacityIndicator } from "../components/CapacityIndicator";
 import { NetworkIsolationSelector } from "../components/NetworkIsolationSelector";
@@ -42,15 +42,16 @@ export default function Settings() {
       const info = await safeInvoke<SystemInfo>("get_system_info");
       setSystemInfo(info);
     } catch {
-      // Mock for development
+      // System info not available outside Tauri runtime
     }
   };
 
   const handleSaveApiKey = async () => {
     try {
       await safeInvoke("save_api_key", { key: anthropicKey });
-    } catch {
-      // Will work in production
+    } catch (err) {
+      toast.error("Failed to save API key — Tauri backend not available");
+      return;
     }
     setKeySaved(true);
     setTimeout(() => setKeySaved(false), 3000);
@@ -237,12 +238,32 @@ export default function Settings() {
                 <BackupExport />
               </Section>
 
+              {/* Restart Onboarding */}
+              <Section title="Setup Wizard" icon="🧙" description="Re-run the initial setup experience">
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-400">
+                    Restart the onboarding wizard to reconfigure Docker, API keys, or messaging channels.
+                  </p>
+                  <button
+                    onClick={() => {
+                      localSet("onboarding_complete", false);
+                      localSet("stack_configured", false);
+                      toast.success("Reloading with setup wizard...");
+                      setTimeout(() => window.location.reload(), 800);
+                    }}
+                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm font-semibold text-white transition-all duration-200 active:scale-95"
+                  >
+                    Restart Onboarding
+                  </button>
+                </div>
+              </Section>
+
               {/* About */}
               <Section title="About" icon="ℹ️" description="Application details">
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-500">App Version</span>
-                    <span className="text-white font-medium">0.3.0</span>
+                    <span className="text-white font-medium">0.4.0</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Tauri Version</span>
