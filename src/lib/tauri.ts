@@ -1,10 +1,10 @@
 /**
  * Safe Tauri invoke wrapper.
  *
- * Detects whether the app is running inside a Tauri shell.
- * If not, rejects immediately with a descriptive error — no
- * console spam, no network attempts. All existing try/catch
- * fallbacks in components continue to work as-is.
+ * Handles TWO failure modes:
+ * 1. Browser mode (no Tauri shell) — rejects immediately, no console noise
+ * 2. Tauri mode but command not registered — catches "Command X not found"
+ *    from the Rust backend and throws a normalized NotImplemented error
  *
  * Also provides a localStorage-backed persistence layer so
  * settings survive page reloads even without the Rust backend.
@@ -31,17 +31,49 @@ export function isTauri(): boolean {
   return detectTauri();
 }
 
+// ─── Error helpers ──────────────────────────────────────────────────────
+
+/**
+ * Check if an error is a "command not implemented" error.
+ * Useful for components to show "coming soon" instead of raw errors.
+ */
+export function isNotImplemented(err: unknown): boolean {
+  const msg = String(err);
+  return msg.includes('not found') || msg.includes('not available') || msg.includes('[tauri:');
+}
+
+/**
+ * Get a user-friendly error message from a Tauri error.
+ * Strips internal "Command X not found" noise.
+ */
+export function friendlyError(err: unknown, fallback = 'This feature is not available yet.'): string {
+  if (isNotImplemented(err)) return fallback;
+  const msg = String(err);
+  // Strip "Error: " prefix if present
+  return msg.replace(/^Error:\s*/i, '') || fallback;
+}
+
 // ─── Safe invoke ────────────────────────────────────────────────────────
 
 /**
  * Call a Tauri command if Tauri is available.
  * If not, rejects with a lightweight error (no console noise).
+ * If command is not registered in Rust backend, normalizes the error.
  */
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!detectTauri()) {
     throw new Error(`[tauri:browser] ${cmd} — not available outside Tauri`);
   }
-  return tauriInvoke<T>(cmd, args);
+  try {
+    return await tauriInvoke<T>(cmd, args);
+  } catch (err) {
+    const msg = String(err);
+    // Normalize "Command X not found" errors from Tauri
+    if (msg.includes('not found')) {
+      throw new Error(`[tauri:not-impl] ${cmd} — backend command not yet implemented`);
+    }
+    throw err;
+  }
 }
 
 // ─── localStorage persistence ───────────────────────────────────────────

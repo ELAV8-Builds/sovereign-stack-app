@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { safeInvoke, isTauri } from '@/lib/tauri';
+import { safeInvoke, isTauri, isNotImplemented, friendlyError } from '@/lib/tauri';
 import toast from 'react-hot-toast';
 
 /**
@@ -140,9 +140,20 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
       // Auto-save tokens on successful connection
       await safeInvoke('save_slack_tokens', { appToken, botToken });
     } catch (err) {
-      if (isTauri()) console.error('Connection test failed:', err);
-      setTestError(err as string || 'Connection failed. Please check your tokens and try again.');
-      setTestSuccess(false);
+      if (isTauri() && !isNotImplemented(err)) console.error('Connection test failed:', err);
+      if (isNotImplemented(err)) {
+        // Backend not ready — simulate success with mock channels so user can continue setup
+        setChannels([
+          { id: 'mock-general', name: 'general' },
+          { id: 'mock-random', name: 'random' },
+        ]);
+        setTestSuccess(true);
+        setTestError('');
+        toast('Slack backend not ready yet — using preview mode', { icon: '🔜' });
+      } else {
+        setTestError(friendlyError(err, 'Connection failed. Please check your tokens and try again.'));
+        setTestSuccess(false);
+      }
     } finally {
       setTesting(false);
     }
@@ -178,8 +189,14 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
 
       onComplete();
     } catch (err) {
-      if (isTauri()) console.error('Failed to register channel:', err);
-      toast.error('Failed to register channel: ' + err);
+      if (isTauri() && !isNotImplemented(err)) console.error('Failed to register channel:', err);
+      if (isNotImplemented(err)) {
+        // Backend not ready — complete setup anyway (config saved to localStorage)
+        toast('Channel saved in preview mode — backend not ready yet', { icon: '🔜' });
+        onComplete();
+      } else {
+        toast.error('Failed to register channel: ' + friendlyError(err));
+      }
     } finally {
       setRegistering(false);
     }

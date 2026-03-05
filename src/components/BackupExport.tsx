@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { safeInvoke, isTauri } from '@/lib/tauri';
+import { safeInvoke, isTauri, friendlyError } from '@/lib/tauri';
 import toast from 'react-hot-toast';
 
 /**
@@ -70,7 +70,7 @@ export function BackupExport() {
       setTimeout(() => setExportSuccess(false), 3000);
     } catch (err) {
       if (isTauri()) console.error('Export failed:', err);
-      setError('Export failed: ' + err);
+      setError('Export failed: ' + friendlyError(err, 'Export feature is not available yet.'));
     } finally {
       setExporting(false);
     }
@@ -83,7 +83,7 @@ export function BackupExport() {
       toast('Import coming soon! For now, manually copy backup files to the config directory.', { icon: '📤', duration: 4000 });
     } catch (err) {
       if (isTauri()) console.error('Import failed:', err);
-      setError('Import failed: ' + err);
+      setError('Import failed: ' + friendlyError(err, 'Import feature is not available yet.'));
     }
   };
 
