@@ -38,9 +38,7 @@
     "macOS": {
       "minimumSystemVersion": "13.0",
       "exceptionDomain": "localhost",
-      "frameworks": [],
-      "license": "",
-      "useBootstrapper": false
+      "frameworks": []
     },
     "resources": [
       "resources/sovereign-setup.pkg"

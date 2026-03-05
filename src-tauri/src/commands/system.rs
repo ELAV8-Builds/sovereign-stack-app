@@ -116,12 +116,14 @@ pub async fn run_preflight_checks() -> Result<PreflightCheckResult, String> {
             result.macos_version = version.clone();
             // Parse version to check if it's >= 13.0 (for SMAppService)
             let version_parts: Vec<&str> = version.split('.').collect();
-            if let Ok(major) = version_parts.get(0).unwrap_or(&"0").parse::<u32>() {
-                if major < 13 {
-                    result.warnings.push(format!(
-                        "macOS version {} detected. Version 13+ recommended for best compatibility.",
-                        version
-                    ));
+            if let Some(major_str) = version_parts.first() {
+                if let Ok(major) = major_str.parse::<u32>() {
+                    if major < 13 {
+                        result.warnings.push(format!(
+                            "macOS version {} detected. Version 13+ recommended for best compatibility.",
+                            version
+                        ));
+                    }
                 }
             }
         }

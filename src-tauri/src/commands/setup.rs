@@ -23,10 +23,14 @@ pub async fn check_homebrew_installed() -> Result<bool, String> {
 /// Install Homebrew
 #[tauri::command]
 pub async fn install_homebrew() -> Result<String, String> {
-    let output = Command::new("bash")
+    // Security: Use the official Homebrew installation method
+    // The user should be warned that this will download and execute a script
+    let install_url = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
+
+    let output = Command::new("/bin/bash")
         .args([
             "-c",
-            r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#,
+            &format!(r#"curl -fsSL {} | /bin/bash"#, install_url),
         ])
         .output()
         .map_err(|e| format!("Failed to install Homebrew: {}", e))?;
@@ -93,6 +97,21 @@ pub async fn brew_install_cask(cask: String) -> Result<String, String> {
 /// Clone a git repository
 #[tauri::command]
 pub async fn clone_repository(url: String, destination: String) -> Result<String, String> {
+    // Validate URL format
+    if !url.starts_with("https://") && !url.starts_with("git@") {
+        return Err("Invalid repository URL format".to_string());
+    }
+
+    // Check if git is installed
+    let git_check = Command::new("which")
+        .arg("git")
+        .output()
+        .map_err(|e| format!("Failed to check for git: {}", e))?;
+
+    if !git_check.status.success() {
+        return Err("Git is not installed".to_string());
+    }
+
     let output = Command::new("git")
         .args(["clone", &url, &destination])
         .output()
@@ -101,16 +120,25 @@ pub async fn clone_repository(url: String, destination: String) -> Result<String
     if output.status.success() {
         Ok(format!("Repository cloned to {}", destination))
     } else {
-        Err(format!(
-            "Failed to clone repository: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Failed to clone repository: {}", stderr))
     }
 }
 
 /// Run npm install in a directory
 #[tauri::command]
 pub async fn npm_install(directory: String) -> Result<String, String> {
+    // Verify directory exists
+    if !std::path::Path::new(&directory).exists() {
+        return Err(format!("Directory does not exist: {}", directory));
+    }
+
+    // Check if package.json exists
+    let package_json = format!("{}/package.json", directory);
+    if !std::path::Path::new(&package_json).exists() {
+        return Err(format!("package.json not found in {}", directory));
+    }
+
     let output = Command::new("npm")
         .args(["install"])
         .current_dir(&directory)
@@ -120,10 +148,8 @@ pub async fn npm_install(directory: String) -> Result<String, String> {
     if output.status.success() {
         Ok("Dependencies installed successfully".to_string())
     } else {
-        Err(format!(
-            "Failed to install dependencies: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Failed to install dependencies: {}", stderr))
     }
 }
 

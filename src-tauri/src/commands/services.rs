@@ -20,11 +20,10 @@ pub enum ServiceStatus {
 
 /// Check if a port is listening
 fn is_port_listening(port: u16) -> bool {
-    TcpStream::connect_timeout(
-        &format!("127.0.0.1:{}", port).parse().unwrap(),
-        Duration::from_millis(500),
-    )
-    .is_ok()
+    match format!("127.0.0.1:{}", port).parse() {
+        Ok(addr) => TcpStream::connect_timeout(&addr, Duration::from_millis(1000)).is_ok(),
+        Err(_) => false,
+    }
 }
 
 /// Check if a process is running via launchctl
@@ -121,6 +120,11 @@ pub async fn get_services_status() -> Result<Vec<ServiceInfo>, String> {
 /// Start a service via launchctl
 #[tauri::command]
 pub async fn start_service(service_name: String) -> Result<String, String> {
+    // Validate service name (prevent command injection)
+    if service_name.contains(|c: char| !c.is_alphanumeric() && c != '-' && c != '_') {
+        return Err("Invalid service name".to_string());
+    }
+
     let label = format!("com.sovereign.{}", service_name.to_lowercase());
 
     let output = Command::new("launchctl")
@@ -131,17 +135,19 @@ pub async fn start_service(service_name: String) -> Result<String, String> {
     if output.status.success() {
         Ok(format!("{} started successfully", service_name))
     } else {
-        Err(format!(
-            "Failed to start {}: {}",
-            service_name,
-            String::from_utf8_lossy(&output.stderr)
-        ))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Failed to start {}: {}", service_name, stderr))
     }
 }
 
 /// Stop a service via launchctl
 #[tauri::command]
 pub async fn stop_service(service_name: String) -> Result<String, String> {
+    // Validate service name (prevent command injection)
+    if service_name.contains(|c: char| !c.is_alphanumeric() && c != '-' && c != '_') {
+        return Err("Invalid service name".to_string());
+    }
+
     let label = format!("com.sovereign.{}", service_name.to_lowercase());
 
     let output = Command::new("launchctl")
@@ -152,11 +158,8 @@ pub async fn stop_service(service_name: String) -> Result<String, String> {
     if output.status.success() {
         Ok(format!("{} stopped successfully", service_name))
     } else {
-        Err(format!(
-            "Failed to stop {}: {}",
-            service_name,
-            String::from_utf8_lossy(&output.stderr)
-        ))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Failed to stop {}: {}", service_name, stderr))
     }
 }
 
