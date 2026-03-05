@@ -34,5 +34,13 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+    proxy: {
+      // Proxy /api/llm/* to LiteLLM (localhost:4000)
+      "/api/llm": {
+        target: "http://127.0.0.1:4000",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/llm/, ""),
+      },
+    },
   },
 }));

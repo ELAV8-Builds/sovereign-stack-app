@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { safeInvoke, isTauri } from '@/lib/tauri';
+import { checkLLMHealth } from '@/lib/ai';
 import toast from 'react-hot-toast';
 
 /**
@@ -57,37 +58,95 @@ export function HealthCheck({ onComplete, autoRun = true }: HealthCheckProps) {
     // Simulate check delay
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
+    // Try Tauri backend first (has port-level checks)
     try {
       const healthResults = await safeInvoke<ServiceHealth[]>('check_system_health');
       setServices(healthResults);
       setAllHealthy(healthResults.every((s) => s.status === 'healthy'));
       setHasChecked(true);
-
-      if (onComplete) {
-        onComplete();
-      }
-    } catch (err) {
-      if (isTauri()) console.error('Health check failed:', err);
-
-      // Use mock data for development
-      const mockServices: ServiceHealth[] = [
-        { name: 'Docker', status: 'healthy', message: 'Docker daemon is running' },
-        { name: 'LiteLLM', status: 'healthy', message: 'Model routing operational' },
-        { name: 'memU', status: 'healthy', message: 'Semantic memory ready' },
-        { name: 'Ollama', status: 'degraded', message: 'No models installed' },
-        { name: 'PostgreSQL', status: 'healthy', message: 'Database connected' },
-      ];
-
-      setServices(mockServices);
-      setAllHealthy(mockServices.every((s) => s.status === 'healthy'));
-      setHasChecked(true);
-
-      if (onComplete) {
-        onComplete();
-      }
-    } finally {
       setChecking(false);
+      if (onComplete) onComplete();
+      return;
+    } catch (err) {
+      if (isTauri()) console.warn('Tauri health check unavailable, using browser probes:', err);
     }
+
+    // Fallback: browser-based health probes via Vite proxy / direct fetch
+    const results: ServiceHealth[] = [];
+
+    // Check LiteLLM via Vite proxy
+    try {
+      const llmOk = await checkLLMHealth();
+      if (llmOk) {
+        // Also check available models
+        const modelsRes = await fetch('/api/llm/models', { signal: AbortSignal.timeout(5000) });
+        const modelsData = modelsRes.ok ? await modelsRes.json() : { data: [] };
+        const modelCount = (modelsData.data || []).length;
+        results.push({
+          name: 'LiteLLM',
+          status: 'healthy',
+          message: `Model routing operational (${modelCount} models available)`,
+        });
+      } else {
+        results.push({ name: 'LiteLLM', status: 'down', message: 'Not reachable on port 4000' });
+      }
+    } catch {
+      results.push({ name: 'LiteLLM', status: 'down', message: 'Not reachable on port 4000' });
+    }
+
+    // Check Ollama
+    try {
+      const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const data = await res.json();
+        const models = (data.models || []).length;
+        results.push({
+          name: 'Ollama',
+          status: models > 0 ? 'healthy' : 'degraded',
+          message: models > 0 ? `Running with ${models} model(s)` : 'Running but no models installed',
+        });
+      } else {
+        results.push({ name: 'Ollama', status: 'down', message: 'Not responding' });
+      }
+    } catch {
+      results.push({ name: 'Ollama', status: 'down', message: 'Not reachable on port 11434' });
+    }
+
+    // Check memU
+    try {
+      const res = await fetch('http://127.0.0.1:8090/retrieve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: 'health' }),
+        signal: AbortSignal.timeout(5000),
+      });
+      results.push({
+        name: 'memU',
+        status: res.status < 500 ? 'healthy' : 'degraded',
+        message: res.status < 500 ? 'Semantic memory ready' : `Responded with ${res.status}`,
+      });
+    } catch {
+      results.push({ name: 'memU', status: 'down', message: 'Not reachable on port 8090' });
+    }
+
+    // Check AnythingLLM
+    try {
+      const res = await fetch('http://127.0.0.1:3001/api/v1/auth', { signal: AbortSignal.timeout(5000) });
+      // 403 is normal without API key — means it's running
+      results.push({
+        name: 'AnythingLLM',
+        status: 'healthy',
+        message: `Running (HTTP ${res.status})`,
+      });
+    } catch {
+      results.push({ name: 'AnythingLLM', status: 'down', message: 'Not reachable on port 3001' });
+    }
+
+    setServices(results);
+    setAllHealthy(results.every((s) => s.status === 'healthy'));
+    setHasChecked(true);
+    if (onComplete) onComplete();
+    setChecking(false);
   };
 
   const getStatusIcon = (status: 'healthy' | 'degraded' | 'down') => {

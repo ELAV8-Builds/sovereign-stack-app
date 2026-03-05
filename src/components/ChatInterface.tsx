@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { safeInvoke } from "@/lib/tauri";
+import { safeInvoke, localGet } from "@/lib/tauri";
+import { chatWithAI, checkLLMHealth } from "@/lib/ai";
+import toast from "react-hot-toast";
 
 interface ChatMessage {
   id: string;
@@ -15,12 +17,14 @@ interface ChannelStatus {
 }
 
 export function ChatInterface() {
+  const agentName = localGet('agent_name', 'Sovereign Agent');
+  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
       role: "agent",
       content:
-        "Hey! I'm your Sovereign agent. I can manage your services, answer questions, run tasks — whatever you need. What are we working on?",
+        `Hey! I'm ${agentName}. I can manage your services, answer questions, run tasks — whatever you need. What are we working on?`,
       timestamp: new Date(),
       status: "sent",
     },
@@ -33,6 +37,11 @@ export function ChatInterface() {
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Check LLM availability on mount
+  useEffect(() => {
+    checkLLMHealth().then(setLlmAvailable);
+  }, []);
 
   // Auto-scroll to bottom
   const scrollToBottom = useCallback(() => {
@@ -89,9 +98,17 @@ export function ChatInterface() {
     }
 
     try {
-      const response = await safeInvoke<string>("chat_with_agent", {
-        message: trimmed,
-      });
+      // Build conversation history for context (last 20 messages)
+      const history = messages
+        .filter((m) => m.id !== "welcome")
+        .slice(-20)
+        .map((m) => ({
+          role: m.role === "user" ? "user" as const : "assistant" as const,
+          content: m.content,
+        }));
+
+      // Try real AI via LiteLLM proxy first
+      const response = await chatWithAI(trimmed, history);
 
       const agentMsg: ChatMessage = {
         id: `agent-${Date.now()}`,
@@ -103,9 +120,41 @@ export function ChatInterface() {
 
       setIsTyping(false);
       setMessages((prev) => [...prev, agentMsg]);
+
+      // Update LLM status if this is first success
+      if (llmAvailable === false || llmAvailable === null) {
+        setLlmAvailable(true);
+      }
     } catch (err) {
       setIsTyping(false);
-      // Mock response for development
+
+      // If LiteLLM is down, try direct Tauri backend
+      try {
+        const tauriResponse = await safeInvoke<string>("chat_with_agent", {
+          message: trimmed,
+        });
+        const agentMsg: ChatMessage = {
+          id: `agent-${Date.now()}`,
+          role: "agent",
+          content: tauriResponse,
+          timestamp: new Date(),
+          status: "sent",
+        };
+        setMessages((prev) => [...prev, agentMsg]);
+        return;
+      } catch {
+        // Both LiteLLM and Tauri failed — show error + mock fallback
+      }
+
+      // Show connection warning only once
+      if (llmAvailable !== false) {
+        setLlmAvailable(false);
+        toast.error(
+          "AI not connected — LiteLLM is not running. Showing preview responses.",
+          { duration: 5000 }
+        );
+      }
+
       const mockMsg: ChatMessage = {
         id: `agent-${Date.now()}`,
         role: "agent",
@@ -198,9 +247,23 @@ export function ChatInterface() {
             </span>
           </div>
         </div>
-        <span className="text-xs text-slate-600">
-          {messages.length - 1} messages
-        </span>
+        <div className="flex items-center gap-3">
+          {llmAvailable === false && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400 border border-yellow-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+              Preview Mode
+            </span>
+          )}
+          {llmAvailable === true && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              AI Connected
+            </span>
+          )}
+          <span className="text-xs text-slate-600">
+            {messages.length - 1} messages
+          </span>
+        </div>
       </div>
 
       {/* Messages area */}
@@ -221,7 +284,7 @@ export function ChatInterface() {
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm">🤖</span>
                   <span className="text-xs font-semibold text-slate-400">
-                    Sovereign Agent
+                    {agentName}
                   </span>
                 </div>
               )}
