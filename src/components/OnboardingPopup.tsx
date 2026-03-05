@@ -269,7 +269,7 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
               <div className="space-y-2.5">
                 {[
                   { icon: "🧠", text: "9 AI model tiers (Haiku to Opus)" },
-                  { icon: "🔒", text: "100% local — your data never leaves" },
+                  { icon: "🔒", text: "You own the infrastructure — AI runs through your keys" },
                   { icon: "📱", text: "WhatsApp & Slack integration" },
                   { icon: "💻", text: "Code workspace with git" },
                 ].map((item) => (
@@ -431,7 +431,7 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
                   >
                     console.anthropic.com
                   </a>
-                  . Stored locally, never sent anywhere.
+                  . Stored locally in .env — used to authenticate with AI providers.
                 </p>
               </div>
 
