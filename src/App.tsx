@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { safeInvoke } from "@/lib/tauri";
+import { localGet } from "@/lib/tauri";
 import { Toaster } from "react-hot-toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ChatInterface } from "./components/ChatInterface";
@@ -16,20 +16,11 @@ function AppContent() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
 
-  // Check if first launch
+  // Check if first launch — use localStorage (works in both Tauri and browser)
   useEffect(() => {
-    const checkFirstLaunch = async () => {
-      try {
-        const hasSetup = await safeInvoke<boolean>("check_sovereign_user_exists");
-        setShowOnboarding(!hasSetup);
-      } catch {
-        // If backend not available, check localStorage
-        const completed = localStorage.getItem("sovereign_onboarding_complete");
-        setShowOnboarding(!completed);
-      }
-      setOnboardingChecked(true);
-    };
-    checkFirstLaunch();
+    const isComplete = localGet<boolean>("onboarding_complete", false);
+    setShowOnboarding(!isComplete);
+    setOnboardingChecked(true);
   }, []);
 
   const handleOnboardingComplete = () => {
@@ -67,7 +58,7 @@ function AppContent() {
           <span className="text-sm font-bold tracking-tight text-slate-300">
             SOVEREIGN
           </span>
-          <span className="text-[10px] text-slate-600 font-mono">v0.3</span>
+          <span className="text-[10px] text-slate-600 font-mono">v0.4</span>
         </div>
 
         {/* Center: Tabs */}

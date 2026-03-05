@@ -3,6 +3,7 @@ mod commands;
 use commands::setup::*;
 use commands::services::*;
 use commands::system::*;
+use commands::docker::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -31,6 +32,16 @@ pub fn run() {
             ollama_pull_model,
             check_sovereign_user_exists,
             run_privileged_installer,
+            // Docker stack commands
+            check_docker_status,
+            clone_docker_stack,
+            configure_docker_env,
+            docker_compose_build,
+            docker_compose_up,
+            docker_compose_down,
+            pull_ollama_model,
+            check_stack_health,
+            get_docker_ps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
