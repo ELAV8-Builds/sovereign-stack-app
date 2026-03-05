@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
 
 interface ServiceInfo {
   name: string;
@@ -33,7 +33,7 @@ export function UnifiedDashboard() {
   // Fetch services
   const fetchServices = async () => {
     try {
-      const data = await invoke<ServiceInfo[]>("get_services_status");
+      const data = await safeInvoke<ServiceInfo[]>("get_services_status");
       if (Array.isArray(data)) setServices(data);
     } catch {
       // Use mock data
@@ -61,7 +61,7 @@ export function UnifiedDashboard() {
   ) => {
     setActionInProgress(service);
     try {
-      await invoke<string>(`${action}_service`, { serviceName: service });
+      await safeInvoke<string>(`${action}_service`, { serviceName: service });
       await fetchServices();
       setToast({
         message: `${service} ${action}ed successfully`,
@@ -88,7 +88,7 @@ export function UnifiedDashboard() {
     setLogsLoading(true);
 
     try {
-      const logsData = await invoke<string>("get_service_logs", {
+      const logsData = await safeInvoke<string>("get_service_logs", {
         serviceName,
         lines: 50,
       });

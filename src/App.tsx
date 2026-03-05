@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
+import { Toaster } from "react-hot-toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ChatInterface } from "./components/ChatInterface";
 import { UnifiedDashboard } from "./components/UnifiedDashboard";
@@ -19,7 +20,7 @@ function AppContent() {
   useEffect(() => {
     const checkFirstLaunch = async () => {
       try {
-        const hasSetup = await invoke<boolean>("check_sovereign_user_exists");
+        const hasSetup = await safeInvoke<boolean>("check_sovereign_user_exists");
         setShowOnboarding(!hasSetup);
       } catch {
         // If backend not available, check localStorage
@@ -109,6 +110,17 @@ function App() {
   return (
     <ErrorBoundary>
       <AppContent />
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: '#1e293b',
+            color: '#e2e8f0',
+            border: '1px solid #334155',
+            fontSize: '13px',
+          },
+        }}
+      />
     </ErrorBoundary>
   );
 }

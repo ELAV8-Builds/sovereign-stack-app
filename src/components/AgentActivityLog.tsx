@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
 
 interface ActivityEntry {
   id: string;
@@ -94,7 +94,7 @@ export function AgentActivityLog() {
     // Try real backend first
     const fetchReal = async () => {
       try {
-        const realEntries = await invoke<ActivityEntry[]>("get_agent_activity", { limit: 1 });
+        const realEntries = await safeInvoke<ActivityEntry[]>("get_agent_activity", { limit: 1 });
         if (realEntries && realEntries.length > 0) {
           setEntries((prev) => [...prev.slice(-200), ...realEntries]);
           return true;

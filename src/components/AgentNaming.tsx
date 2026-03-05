@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri, localGet, localSet } from '@/lib/tauri';
 
 /**
  * RUST BACKEND COMMANDS NEEDED:
@@ -48,13 +48,13 @@ export function AgentNaming({ onSave }: AgentNamingProps) {
 
   const loadAgentName = async () => {
     try {
-      const currentName = await invoke<string>('get_agent_name');
+      const currentName = await safeInvoke<string>('get_agent_name');
       setName(currentName);
       setLoading(false);
     } catch (err) {
-      console.error('Failed to load agent name:', err);
-      // Use default if backend not available
-      setName('Bizo');
+      if (isTauri()) console.error('Failed to load agent name:', err);
+      // Use localStorage fallback, then default
+      setName(localGet('agent_name', 'Bizo'));
       setLoading(false);
     }
   };
@@ -84,7 +84,8 @@ export function AgentNaming({ onSave }: AgentNamingProps) {
     setSuccess(false);
 
     try {
-      await invoke('set_agent_name', { name: name.trim() });
+      await safeInvoke('set_agent_name', { name: name.trim() });
+      localSet('agent_name', name.trim());
       setSuccess(true);
 
       // Call optional callback
@@ -95,8 +96,12 @@ export function AgentNaming({ onSave }: AgentNamingProps) {
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      console.error('Failed to save agent name:', err);
-      setError('Failed to save. Please try again.');
+      if (isTauri()) console.error('Failed to save agent name:', err);
+      // Persist to localStorage in browser mode
+      localSet('agent_name', name.trim());
+      setSuccess(true);
+      if (onSave) onSave(name.trim(), selectedAvatar);
+      setTimeout(() => setSuccess(false), 3000);
     } finally {
       setSaving(false);
     }

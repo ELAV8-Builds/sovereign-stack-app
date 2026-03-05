@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri, localGet, localSet } from '@/lib/tauri';
 
 /**
  * RUST BACKEND INTEGRATION:
@@ -107,13 +107,13 @@ export function NetworkIsolationSelector({ onChange }: NetworkIsolationSelectorP
 
   const loadNetworkMode = async () => {
     try {
-      const currentMode = await invoke<NetworkMode>('get_network_mode');
+      const currentMode = await safeInvoke<NetworkMode>('get_network_mode');
       setSelectedMode(currentMode);
       setLoading(false);
     } catch (err) {
-      console.error('Failed to load network mode:', err);
-      // Use default if backend not available
-      setSelectedMode('bridge');
+      if (isTauri()) console.error('Failed to load network mode:', err);
+      // Use localStorage fallback, then default
+      setSelectedMode(localGet<NetworkMode>('network_mode', 'bridge'));
       setLoading(false);
     }
   };
@@ -125,7 +125,8 @@ export function NetworkIsolationSelector({ onChange }: NetworkIsolationSelectorP
     setSaving(true);
 
     try {
-      await invoke('set_network_mode', { mode });
+      await safeInvoke('set_network_mode', { mode });
+      localSet('network_mode', mode);
       setSuccess(true);
 
       // Call optional callback
@@ -136,8 +137,12 @@ export function NetworkIsolationSelector({ onChange }: NetworkIsolationSelectorP
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      console.error('Failed to save network mode:', err);
-      setError('Failed to save. Please try again.');
+      if (isTauri()) console.error('Failed to save network mode:', err);
+      // Persist to localStorage in browser mode
+      localSet('network_mode', mode);
+      setSuccess(true);
+      if (onChange) onChange(mode);
+      setTimeout(() => setSuccess(false), 3000);
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
 
 type ConnectionState = "idle" | "generating" | "waiting" | "scanning" | "connected" | "error";
 
@@ -21,7 +21,7 @@ export function WhatsAppConnect({ onConnected, compact = false }: WhatsAppConnec
     setError("");
 
     try {
-      const qr = await invoke<string>("generate_whatsapp_qr");
+      const qr = await safeInvoke<string>("generate_whatsapp_qr");
       setQrData(qr);
       setState("waiting");
       setCountdown(60);
@@ -39,7 +39,7 @@ export function WhatsAppConnect({ onConnected, compact = false }: WhatsAppConnec
 
     const interval = setInterval(async () => {
       try {
-        const status = await invoke<{ connected: boolean; device?: string }>(
+        const status = await safeInvoke<{ connected: boolean; device?: string }>(
           "check_whatsapp_status"
         );
         if (status.connected) {

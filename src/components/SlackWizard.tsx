@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri } from '@/lib/tauri';
+import toast from 'react-hot-toast';
 
 /**
  * RUST BACKEND COMMANDS NEEDED:
@@ -127,7 +128,7 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
     setTestSuccess(false);
 
     try {
-      const channelList = await invoke<Channel[]>('test_slack_connection', {
+      const channelList = await safeInvoke<Channel[]>('test_slack_connection', {
         appToken,
         botToken,
       });
@@ -137,9 +138,9 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
       setTestError('');
 
       // Auto-save tokens on successful connection
-      await invoke('save_slack_tokens', { appToken, botToken });
+      await safeInvoke('save_slack_tokens', { appToken, botToken });
     } catch (err) {
-      console.error('Connection test failed:', err);
+      if (isTauri()) console.error('Connection test failed:', err);
       setTestError(err as string || 'Connection failed. Please check your tokens and try again.');
       setTestSuccess(false);
     } finally {
@@ -169,7 +170,7 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
 
     setRegistering(true);
     try {
-      await invoke('register_slack_channel', {
+      await safeInvoke('register_slack_channel', {
         channelId: selectedChannelId,
         name: groupName,
         trigger: triggerWord,
@@ -177,8 +178,8 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
 
       onComplete();
     } catch (err) {
-      console.error('Failed to register channel:', err);
-      alert('Failed to register channel: ' + err);
+      if (isTauri()) console.error('Failed to register channel:', err);
+      toast.error('Failed to register channel: ' + err);
     } finally {
       setRegistering(false);
     }

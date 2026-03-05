@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri } from '@/lib/tauri';
 
 /**
  * RUST BACKEND COMMANDS NEEDED:
@@ -124,12 +124,12 @@ export function CostTracker() {
 
   const loadUsageStats = async () => {
     try {
-      const usageStats = await invoke<UsageStats>('get_usage_stats');
+      const usageStats = await safeInvoke<UsageStats>('get_usage_stats');
       setStats(usageStats);
       setError(null);
       setLoading(false);
     } catch (err) {
-      console.error('Failed to load usage stats:', err);
+      if (isTauri()) console.error('Failed to load usage stats:', err);
 
       // Use realistic mock data for development
       setStats({

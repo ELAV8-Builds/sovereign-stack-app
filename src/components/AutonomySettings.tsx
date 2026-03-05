@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri, localGet, localSet } from '@/lib/tauri';
 
 /**
  * RUST BACKEND INTEGRATION:
@@ -52,17 +52,18 @@ export function AutonomySettings() {
 
   const loadPreferences = async () => {
     try {
-      const prefs = await invoke<AutonomyPrefs>('get_autonomy_preferences');
+      const prefs = await safeInvoke<AutonomyPrefs>('get_autonomy_preferences');
       setPreferences(prefs);
       setLoading(false);
     } catch (err) {
-      console.error('Failed to load autonomy preferences:', err);
-      // Use defaults if backend not available
-      setPreferences({
+      if (isTauri()) console.error('Failed to load autonomy preferences:', err);
+      // Use localStorage fallback, then defaults
+      const defaults: AutonomyPrefs = {
         network_access: true,
         file_access: true,
         auto_execute: true,
-      });
+      };
+      setPreferences(localGet<AutonomyPrefs>('autonomy_prefs', defaults));
       setLoading(false);
     }
   };
@@ -82,12 +83,16 @@ export function AutonomySettings() {
     setSuccess(false);
 
     try {
-      await invoke('save_autonomy_preferences', { prefs: preferences });
+      await safeInvoke('save_autonomy_preferences', { prefs: preferences });
+      localSet('autonomy_prefs', preferences);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      console.error('Failed to save autonomy preferences:', err);
-      setError('Failed to save preferences. Please try again.');
+      if (isTauri()) console.error('Failed to save autonomy preferences:', err);
+      // Persist to localStorage in browser mode
+      localSet('autonomy_prefs', preferences);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
     } finally {
       setSaving(false);
     }

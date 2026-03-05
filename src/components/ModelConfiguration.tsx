@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri, localGet, localSet } from '@/lib/tauri';
 
 enum BudgetTier {
   PERFORMANCE = 'performance',
@@ -167,15 +167,15 @@ export function ModelConfiguration() {
 
   const loadConfig = async () => {
     try {
-      const cfg = await invoke<ModelConfig>('get_model_config');
+      const cfg = await safeInvoke<ModelConfig>('get_model_config');
       setConfig(cfg);
       setSelectedTier(cfg.tier);
     } catch (err) {
-      // Fallback to mock data
-      console.warn('Failed to load config from backend, using mock data:', err);
-      const mockConfig = getMockConfig(BudgetTier.PERFORMANCE);
+      if (isTauri()) console.warn('Failed to load config from backend, using mock data:', err);
+      const savedTier = localGet<BudgetTier>('model_tier', BudgetTier.PERFORMANCE);
+      const mockConfig = getMockConfig(savedTier);
       setConfig(mockConfig);
-      setSelectedTier(BudgetTier.PERFORMANCE);
+      setSelectedTier(savedTier);
     }
   };
 
@@ -185,14 +185,15 @@ export function ModelConfiguration() {
     setSaveSuccess(false);
 
     try {
-      await invoke('set_model_tier', { tier });
-      const newConfig = await invoke<ModelConfig>('get_model_config');
+      await safeInvoke('set_model_tier', { tier });
+      const newConfig = await safeInvoke<ModelConfig>('get_model_config');
       setConfig(newConfig);
+      localSet('model_tier', tier);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      // Fallback to mock data
-      console.warn('Failed to save tier to backend, using mock data:', err);
+      if (isTauri()) console.warn('Failed to save tier to backend, using mock data:', err);
+      localSet('model_tier', tier);
       const mockConfig = getMockConfig(tier);
       setConfig(mockConfig);
       setSaveSuccess(true);

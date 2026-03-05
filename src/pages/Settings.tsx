@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
 import { AgentNaming } from "../components/AgentNaming";
 import { CapacityIndicator } from "../components/CapacityIndicator";
 import { NetworkIsolationSelector } from "../components/NetworkIsolationSelector";
@@ -11,6 +11,7 @@ import { HealthCheck } from "../components/HealthCheck";
 import { BackupExport } from "../components/BackupExport";
 import { ModelConfiguration } from "../components/ModelConfiguration";
 import { CompoundCapture } from "../components/CompoundCapture";
+import toast from "react-hot-toast";
 
 interface SystemInfo {
   macos_version: string;
@@ -38,7 +39,7 @@ export default function Settings() {
 
   const loadSystemInfo = async () => {
     try {
-      const info = await invoke<SystemInfo>("get_system_info");
+      const info = await safeInvoke<SystemInfo>("get_system_info");
       setSystemInfo(info);
     } catch {
       // Mock for development
@@ -47,7 +48,7 @@ export default function Settings() {
 
   const handleSaveApiKey = async () => {
     try {
-      await invoke("save_api_key", { key: anthropicKey });
+      await safeInvoke("save_api_key", { key: anthropicKey });
     } catch {
       // Will work in production
     }
@@ -103,7 +104,7 @@ export default function Settings() {
               {/* Slack */}
               <Section title="Slack Integration" icon="💬" description="Connect your Slack workspace">
                 <SlackWizard
-                  onComplete={() => alert("Slack connected!")}
+                  onComplete={() => toast.success("Slack connected!")}
                   embedded={false}
                 />
               </Section>

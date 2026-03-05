@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri } from '@/lib/tauri';
+import toast from 'react-hot-toast';
 
 /**
  * RUST BACKEND COMMANDS NEEDED:
@@ -52,7 +53,7 @@ export function BackupExport() {
 
     try {
       // Get config from backend
-      const configData = await invoke<string>('export_config');
+      const configData = await safeInvoke<string>('export_config');
 
       // Create download
       const blob = new Blob([configData], { type: 'application/json' });
@@ -68,7 +69,7 @@ export function BackupExport() {
       setExportSuccess(true);
       setTimeout(() => setExportSuccess(false), 3000);
     } catch (err) {
-      console.error('Export failed:', err);
+      if (isTauri()) console.error('Export failed:', err);
       setError('Export failed: ' + err);
     } finally {
       setExporting(false);
@@ -79,10 +80,9 @@ export function BackupExport() {
     setError(null);
 
     try {
-      // TODO: Implement file picker
-      alert('Import functionality coming soon! You can manually restore from backup by copying files to the config directory.');
+      toast('Import coming soon! For now, manually copy backup files to the config directory.', { icon: '📤', duration: 4000 });
     } catch (err) {
-      console.error('Import failed:', err);
+      if (isTauri()) console.error('Import failed:', err);
       setError('Import failed: ' + err);
     }
   };

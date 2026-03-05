@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri } from '@/lib/tauri';
 
 interface CompoundEntry {
   id: string;
@@ -216,13 +216,13 @@ export function CompoundCapture() {
 
   const loadData = async () => {
     try {
-      const statsData = await invoke<CompoundStats>('get_compound_stats');
-      const entries = await invoke<CompoundEntry[]>('get_recent_compound_entries');
+      const statsData = await safeInvoke<CompoundStats>('get_compound_stats');
+      const entries = await safeInvoke<CompoundEntry[]>('get_recent_compound_entries');
       setStats(statsData);
       setRecentEntries(entries);
     } catch (err) {
       // Fallback to mock data
-      console.warn('Failed to load compound data, using mock:', err);
+      if (isTauri()) console.warn('Failed to load compound data, using mock:', err);
       setStats(getMockStats());
       setRecentEntries(getMockEntries());
     }
@@ -233,13 +233,13 @@ export function CompoundCapture() {
     setCaptureSuccess(false);
 
     try {
-      await invoke('trigger_compound_capture', { manual: true });
+      await safeInvoke('trigger_compound_capture', { manual: true });
       setCaptureSuccess(true);
       setTimeout(() => setCaptureSuccess(false), 3000);
       // Reload data
       await loadData();
     } catch (err) {
-      console.warn('Failed to trigger compound capture:', err);
+      if (isTauri()) console.warn('Failed to trigger compound capture:', err);
       // Mock success for now
       setCaptureSuccess(true);
       setTimeout(() => setCaptureSuccess(false), 3000);
@@ -252,9 +252,9 @@ export function CompoundCapture() {
     const newValue = !autoCapture;
     setAutoCapture(newValue);
     try {
-      await invoke('set_auto_compound', { enabled: newValue });
+      await safeInvoke('set_auto_compound', { enabled: newValue });
     } catch (err) {
-      console.warn('Failed to toggle auto-compound:', err);
+      if (isTauri()) console.warn('Failed to toggle auto-compound:', err);
     }
   };
 

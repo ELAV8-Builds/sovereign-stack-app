@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
 import { WhatsAppConnect } from "./WhatsAppConnect";
 import { SlackWizard } from "./SlackWizard";
 
@@ -18,7 +18,7 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
   const handleSaveKey = async () => {
     if (!apiKey.trim()) return;
     try {
-      await invoke("save_api_key", { key: apiKey });
+      await safeInvoke("save_api_key", { key: apiKey });
     } catch {
       // Will work in production — mock for now
     }

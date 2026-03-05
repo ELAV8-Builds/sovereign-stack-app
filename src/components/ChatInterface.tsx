@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/lib/tauri";
 
 interface ChatMessage {
   id: string;
@@ -47,7 +47,7 @@ export function ChatInterface() {
   useEffect(() => {
     const checkChannels = async () => {
       try {
-        const status = await invoke<ChannelStatus>("get_channel_status");
+        const status = await safeInvoke<ChannelStatus>("get_channel_status");
         setChannels(status);
       } catch {
         // Mock: no channels connected yet
@@ -89,7 +89,7 @@ export function ChatInterface() {
     }
 
     try {
-      const response = await invoke<string>("chat_with_agent", {
+      const response = await safeInvoke<string>("chat_with_agent", {
         message: trimmed,
       });
 

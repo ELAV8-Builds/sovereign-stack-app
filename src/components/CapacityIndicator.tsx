@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri } from '@/lib/tauri';
 
 /**
  * RUST BACKEND COMMANDS NEEDED:
@@ -78,14 +78,14 @@ export function CapacityIndicator() {
   const loadCapacityInfo = async () => {
     try {
       // Try to load from backend
-      const hwProfile = await invoke<HardwareProfile>('get_hardware_profile');
-      const capInfo = await invoke<CapacityInfo>('calculate_project_capacity');
+      const hwProfile = await safeInvoke<HardwareProfile>('get_hardware_profile');
+      const capInfo = await safeInvoke<CapacityInfo>('calculate_project_capacity');
 
       setHardware(hwProfile);
       setCapacity(capInfo);
       setLoading(false);
     } catch (err) {
-      console.error('Failed to load capacity info:', err);
+      if (isTauri()) console.error('Failed to load capacity info:', err);
 
       // Use mock data for development
       setHardware({

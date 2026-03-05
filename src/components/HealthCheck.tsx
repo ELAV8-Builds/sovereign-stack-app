@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke, isTauri } from '@/lib/tauri';
+import toast from 'react-hot-toast';
 
 /**
  * RUST BACKEND COMMANDS NEEDED:
@@ -57,7 +58,7 @@ export function HealthCheck({ onComplete, autoRun = true }: HealthCheckProps) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     try {
-      const healthResults = await invoke<ServiceHealth[]>('check_system_health');
+      const healthResults = await safeInvoke<ServiceHealth[]>('check_system_health');
       setServices(healthResults);
       setAllHealthy(healthResults.every((s) => s.status === 'healthy'));
       setHasChecked(true);
@@ -66,7 +67,7 @@ export function HealthCheck({ onComplete, autoRun = true }: HealthCheckProps) {
         onComplete();
       }
     } catch (err) {
-      console.error('Health check failed:', err);
+      if (isTauri()) console.error('Health check failed:', err);
 
       // Use mock data for development
       const mockServices: ServiceHealth[] = [
@@ -190,8 +191,7 @@ export function HealthCheck({ onComplete, autoRun = true }: HealthCheckProps) {
         {!allHealthy && (
           <button
             onClick={() => {
-              // TODO: Open troubleshooting guide or service-specific fix
-              alert('Troubleshooting guide coming soon!');
+              toast('Troubleshooting guide coming soon!', { icon: '🔧' });
             }}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all duration-200"
           >
