@@ -799,18 +799,22 @@ export function ChatInterface() {
                   </div>
                 )}
 
-                {/* Tool call blocks */}
-                {msg.toolCalls && msg.toolCalls.map((tc) => (
-                  <ToolCallBlock
-                    key={tc.id}
-                    id={tc.id}
-                    tool={tc.tool}
-                    input={tc.input}
-                    output={tc.output}
-                    status={tc.status}
-                    durationMs={tc.duration_ms}
-                  />
-                ))}
+                {/* Tool call blocks — scrollable, last 5 visible by default */}
+                {msg.toolCalls && (
+                  <div className="max-h-[280px] overflow-y-auto scrollbar-thin">
+                    {msg.toolCalls.map((tc) => (
+                      <ToolCallBlock
+                        key={tc.id}
+                        id={tc.id}
+                        tool={tc.tool}
+                        input={tc.input}
+                        output={tc.output}
+                        status={tc.status}
+                        durationMs={tc.duration_ms}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 {/* Main content */}
                 <div className="text-sm leading-relaxed text-slate-100">
@@ -849,18 +853,27 @@ export function ChatInterface() {
                   </div>
                 )}
 
-                {/* Live tool calls */}
-                {agentToolCalls.map((tc) => (
-                  <ToolCallBlock
-                    key={tc.id}
-                    id={tc.id}
-                    tool={tc.tool}
-                    input={tc.input}
-                    output={tc.output}
-                    status={tc.status}
-                    durationMs={tc.duration_ms}
-                  />
-                ))}
+                {/* Live tool calls — scrollable, last 5 visible */}
+                <div className="max-h-[280px] overflow-y-auto scrollbar-thin flex flex-col-reverse">
+                  <div className="flex flex-col gap-1">
+                    {agentToolCalls.slice(-5).map((tc) => (
+                      <ToolCallBlock
+                        key={tc.id}
+                        id={tc.id}
+                        tool={tc.tool}
+                        input={tc.input}
+                        output={tc.output}
+                        status={tc.status}
+                        durationMs={tc.duration_ms}
+                      />
+                    ))}
+                  </div>
+                </div>
+                {agentToolCalls.length > 5 && (
+                  <div className="text-[10px] text-slate-600 text-center mt-1">
+                    {agentToolCalls.length - 5} more above — scroll to view
+                  </div>
+                )}
 
                 {/* Spinner at the bottom */}
                 <div className="flex items-center gap-2 mt-2">
