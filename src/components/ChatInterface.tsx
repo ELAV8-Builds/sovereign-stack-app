@@ -10,6 +10,8 @@ import {
 } from "@/lib/conversations";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { ToolCallBlock } from "./ToolCallBlock";
+import { FleetPanel } from "./FleetPanel";
+import type { FleetAgent } from "@/lib/fleet";
 import toast from "react-hot-toast";
 
 // ─── Types ───────────────────────────────────────────────────────────────
@@ -71,6 +73,9 @@ export function ChatInterface() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
 
+  // Fleet Mode state
+  const [activeFleetAgent, setActiveFleetAgent] = useState<FleetAgent | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -79,9 +84,11 @@ export function ChatInterface() {
   const welcomeMessage: ChatMessage = {
     id: "welcome",
     role: "agent",
-    content: agentMode
-      ? `Hey! I'm ${agentName}. I'm in *Agent Mode* — I can actually execute commands, read/write files, clone repos, and more. Try asking me to do something!`
-      : `Hey! I'm ${agentName}. I can help answer questions and have conversations. What are we working on?`,
+    content: activeFleetAgent
+      ? `${activeFleetAgent.icon} I'm ${activeFleetAgent.name}, a specialized ${activeFleetAgent.template.replace('_', ' ')} agent. How can I help?`
+      : agentMode
+        ? `Hey! I'm ${agentName}. I'm in *Agent Mode* — I can actually execute commands, read/write files, clone repos, and more. Try asking me to do something!`
+        : `Hey! I'm ${agentName}. I can help answer questions and have conversations. What are we working on?`,
     timestamp: new Date(),
     status: "sent",
   };
@@ -167,6 +174,41 @@ export function ChatInterface() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Fleet agent selection ─────────────────────────────────────────────
+
+  const handleSelectFleetAgent = useCallback(
+    async (agent: FleetAgent | null) => {
+      if (agent === null) {
+        // Switch back to main agent
+        setActiveFleetAgent(null);
+        setMessages([]);
+        // Restore the main conversation
+        const mainConvId = localGet<string | null>("active_conversation_id", null);
+        if (mainConvId) {
+          loadConversation(mainConvId);
+        }
+        return;
+      }
+
+      setActiveFleetAgent(agent);
+      setMessages([]);
+
+      // Load fleet agent's conversation
+      if (agent.conversation_id) {
+        try {
+          const conv = await getConversation(agent.conversation_id);
+          if (conv && conv.messages) {
+            setMessages(conv.messages.map(apiToLocal));
+          }
+        } catch {
+          // Conversation might not have messages yet — that's fine
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loadConversation]
+  );
+
   // ── Create new conversation ───────────────────────────────────────────
 
   const handleNewConversation = useCallback(async () => {
@@ -224,10 +266,23 @@ export function ChatInterface() {
     const collectedToolCalls: AgentToolCall[] = [];
     let thinkingText = "";
 
+    // Fleet Mode: use fleet agent's conversation and system prompt
+    const effectiveConvId = activeFleetAgent
+      ? activeFleetAgent.conversation_id
+      : convId;
+
+    const fleetOverrides = activeFleetAgent
+      ? {
+          system_prompt: activeFleetAgent.system_prompt,
+          model: activeFleetAgent.model,
+          fleet_agent_id: activeFleetAgent.id,
+        }
+      : undefined;
+
     try {
       const finalMessage = await chatWithAgent(
         trimmed,
-        convId,
+        effectiveConvId,
         history,
         {
           onStatus: (iteration) => {
@@ -281,7 +336,8 @@ export function ChatInterface() {
             setIsTyping(false);
           },
         },
-        abortController.signal
+        abortController.signal,
+        fleetOverrides
       );
 
       if (llmAvailable === false || llmAvailable === null) {
@@ -498,17 +554,58 @@ export function ChatInterface() {
 
   return (
     <div className="flex h-full bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      {/* Conversation sidebar */}
-      <ConversationSidebar
-        activeConversationId={activeConversationId}
-        onSelectConversation={loadConversation}
-        onNewConversation={handleNewConversation}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-      />
+      {/* Sidebar: Conversations + Fleet Agents */}
+      <div className="flex flex-col h-full flex-shrink-0">
+        <div className="flex-1 min-h-0">
+          <ConversationSidebar
+            activeConversationId={activeFleetAgent ? null : activeConversationId}
+            onSelectConversation={(id) => {
+              setActiveFleetAgent(null);
+              loadConversation(id);
+            }}
+            onNewConversation={() => {
+              setActiveFleetAgent(null);
+              handleNewConversation();
+            }}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
+        </div>
+        {!sidebarCollapsed && (
+          <div className="px-2 pb-2 flex-shrink-0">
+            <FleetPanel
+              activeAgentId={activeFleetAgent?.id ?? null}
+              onSelectAgent={handleSelectFleetAgent}
+              showLaunchDialog={showLaunchAgent}
+              onCloseLaunchDialog={() => setShowLaunchAgent(false)}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Fleet agent context banner */}
+        {activeFleetAgent && (
+          <div className="flex items-center justify-between px-4 py-1.5 border-b border-blue-800/50 bg-blue-900/20">
+            <div className="flex items-center gap-2">
+              <span className="text-base">{activeFleetAgent.icon}</span>
+              <span className="text-sm font-medium text-blue-300">{activeFleetAgent.name}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-400 border border-blue-800/50">
+                {activeFleetAgent.template.replace('_', ' ')}
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">
+                {activeFleetAgent.model}
+              </span>
+            </div>
+            <button
+              onClick={() => handleSelectFleetAgent(null)}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+            >
+              ← Back to Main Agent
+            </button>
+          </div>
+        )}
         {/* Channel status bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/50">
           <div className="flex items-center gap-3">
@@ -793,83 +890,6 @@ export function ChatInterface() {
         </div>
       </div>
 
-      {/* Launch Agent Dialog */}
-      {showLaunchAgent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🚀</span>
-                <div>
-                  <h2 className="text-lg font-bold text-white">Launch New Agent</h2>
-                  <p className="text-xs text-slate-500">Fleet Mode — spawn specialized agents</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowLaunchAgent(false)}
-                className="text-slate-500 hover:text-white transition-colors p-1"
-              >
-                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-sm text-slate-300">
-                Fleet Mode lets you launch additional AI agents, each in their own secure container with dedicated workspace and tools.
-              </p>
-
-              {/* Agent templates */}
-              <div className="space-y-2">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Agent Templates</p>
-                {[
-                  { icon: '👨‍💻', name: 'Code Assistant', desc: 'Full-stack development with git, npm, and testing tools' },
-                  { icon: '🔬', name: 'Research Agent', desc: 'Web scraping, data analysis, and report generation' },
-                  { icon: '🛠️', name: 'DevOps Agent', desc: 'Docker, CI/CD, infrastructure management' },
-                  { icon: '📝', name: 'Custom Agent', desc: 'Configure tools and workspace from scratch' },
-                ].map((template) => (
-                  <div
-                    key={template.name}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/60 border border-slate-700/50 opacity-60 cursor-not-allowed"
-                  >
-                    <span className="text-2xl">{template.icon}</span>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-slate-300">{template.name}</div>
-                      <div className="text-xs text-slate-500">{template.desc}</div>
-                    </div>
-                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-400 border border-slate-600">
-                      Coming Soon
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Status notice */}
-              <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <span className="text-blue-400 text-sm">ℹ️</span>
-                  <p className="text-xs text-blue-300">
-                    Fleet Mode is being built as the next major feature. Each agent will run in its own Docker container with isolated workspace, dedicated tools, and the ability to collaborate with other agents on your team.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/50">
-              <button
-                onClick={() => setShowLaunchAgent(false)}
-                className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium text-slate-300 transition-all"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

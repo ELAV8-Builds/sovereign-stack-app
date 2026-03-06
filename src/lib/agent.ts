@@ -53,20 +53,36 @@ export interface AgentCallbacks {
  * Send a message to the agent engine and stream back results via SSE.
  * Returns the final text message content.
  */
+export interface AgentOverrides {
+  /** Custom system prompt (Fleet Mode agents) */
+  system_prompt?: string;
+  /** Model tier override */
+  model?: string;
+  /** Fleet agent ID for routing */
+  fleet_agent_id?: string;
+}
+
 export async function chatWithAgent(
   message: string,
   conversationId: string | null,
   history: { role: 'user' | 'assistant'; content: string }[],
   callbacks: AgentCallbacks,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  overrides?: AgentOverrides
 ): Promise<string> {
-  const response = await fetch(`${API_BASE}/agent`, {
+  const queryParams = overrides?.fleet_agent_id
+    ? `?fleet_agent_id=${encodeURIComponent(overrides.fleet_agent_id)}`
+    : '';
+
+  const response = await fetch(`${API_BASE}/agent${queryParams}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
       conversation_id: conversationId,
       history,
+      ...(overrides?.system_prompt && { system_prompt: overrides.system_prompt }),
+      ...(overrides?.model && { model: overrides.model }),
     }),
     signal: abortSignal,
   });

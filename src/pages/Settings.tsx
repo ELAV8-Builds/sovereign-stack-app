@@ -169,14 +169,22 @@ export default function Settings() {
                     { name: "Ollama", port: 11434 },
                     { name: "memU", port: 8090 },
                     { name: "PostgreSQL", port: 5432 },
-                    { name: "Temporal", port: 7233 },
+                    { name: "Temporal", port: 7233, soon: true },
+                    { name: "Redis", port: 6379 },
                     { name: "AnythingLLM", port: 3001 },
                   ].map((svc) => (
                     <div
                       key={svc.name}
                       className="flex justify-between items-center py-1.5 border-b border-slate-800 last:border-0"
                     >
-                      <span className="text-sm text-slate-300">{svc.name}</span>
+                      <span className="text-sm text-slate-300 flex items-center gap-2">
+                        {svc.name}
+                        {"soon" in svc && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-900/30 text-amber-400 border border-amber-800/50">
+                            Coming Soon
+                          </span>
+                        )}
+                      </span>
                       <span className="text-xs text-slate-500 font-mono">
                         :{svc.port}
                       </span>
