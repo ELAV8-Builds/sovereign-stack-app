@@ -175,9 +175,15 @@ export function Canvas() {
 
   // ── Delete page ────────────────────────────────────────────────────
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   const handleDeletePage = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this page?")) return;
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      setTimeout(() => setConfirmDeleteId(null), 3000);
+      return;
+    }
     try {
       await deleteCanvasPage(id);
       setPages(prev => prev.filter(p => p.id !== id));
@@ -189,6 +195,7 @@ export function Canvas() {
     } catch {
       toast.error("Failed to delete page");
     }
+    setConfirmDeleteId(null);
   };
 
   // ── Duplicate page ─────────────────────────────────────────────────
@@ -447,8 +454,12 @@ export function Canvas() {
                   </button>
                   <button
                     onClick={(e) => handleDeletePage(page.id, e)}
-                    className="p-0.5 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400"
-                    title="Delete"
+                    className={`p-0.5 rounded transition-all ${
+                      confirmDeleteId === page.id
+                        ? "bg-red-500/30 text-red-400 ring-1 ring-red-500/50"
+                        : "hover:bg-red-500/20 text-slate-500 hover:text-red-400"
+                    }`}
+                    title={confirmDeleteId === page.id ? "Click again to confirm" : "Delete"}
                   >
                     <TrashIcon />
                   </button>

@@ -74,18 +74,18 @@ function AppContent() {
         <OnboardingPopup onComplete={handleOnboardingComplete} forceRestart={forceRestart} />
       )}
 
-      {/* Top navigation bar — extends under traffic lights */}
-      <nav
+      {/* Top navigation bar — fully draggable except buttons */}
+      <div
         data-tauri-drag-region
-        className="flex items-center justify-between pl-[80px] pr-3 h-12 border-b border-white/[0.06] bg-slate-950/70 backdrop-blur-xl flex-shrink-0 z-30"
+        className="flex items-center pl-[80px] pr-3 h-12 border-b border-white/[0.06] bg-slate-950/70 backdrop-blur-xl flex-shrink-0 z-30"
         style={{ borderTop: "1px solid rgba(99, 102, 241, 0.15)" }}
       >
-        {/* Left: Logo */}
-        <div data-tauri-drag-region className="flex items-center gap-2.5">
-          <span className="text-sm font-bold tracking-widest text-white/80 uppercase">
+        {/* Left: Logo + drag spacer */}
+        <div data-tauri-drag-region className="flex items-center gap-2.5 mr-auto">
+          <span data-tauri-drag-region className="text-sm font-bold tracking-widest text-white/80 uppercase select-none">
             Sovereign
           </span>
-          <span className="text-[9px] text-indigo-400/60 font-mono font-medium">v0.4</span>
+          <span data-tauri-drag-region className="text-[9px] text-indigo-400/60 font-mono font-medium select-none">v0.4</span>
         </div>
 
         {/* Center: Tabs */}
@@ -109,15 +109,15 @@ function AppContent() {
           ))}
         </div>
 
-        {/* Right: Status ring */}
-        <div className="flex items-center gap-2">
+        {/* Right: Status ring + drag spacer */}
+        <div data-tauri-drag-region className="flex items-center gap-2 ml-auto">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
           </span>
-          <span className="text-[10px] text-slate-500 font-medium">Live</span>
+          <span data-tauri-drag-region className="text-[10px] text-slate-500 font-medium select-none">Live</span>
         </div>
-      </nav>
+      </div>
 
       {/* Main content — ChatInterface stays mounted to preserve state */}
       <main className="flex-1 overflow-hidden relative">
