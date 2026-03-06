@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { safeInvoke, isTauri, isNotImplemented, friendlyError } from '@/lib/tauri';
+import { friendlyError } from '@/lib/tauri';
 import toast from 'react-hot-toast';
 
 /**
@@ -128,28 +128,63 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
     setTestSuccess(false);
 
     try {
-      const channelList = await safeInvoke<Channel[]>('test_slack_connection', {
-        appToken,
-        botToken,
+      // Test connection via NanoClaw REST API
+      const connectRes = await fetch('/api/nanoclaw/slack/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appToken, botToken }),
+        signal: AbortSignal.timeout(15000),
       });
+      const connectData = await connectRes.json();
 
-      setChannels(channelList);
+      if (!connectRes.ok) {
+        setTestError(connectData.detail || connectData.error || 'Connection failed');
+        setTestSuccess(false);
+        return;
+      }
+
+      // Fetch channels
+      const channelsRes = await fetch('/api/nanoclaw/slack/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const channelsData = await channelsRes.json();
+
+      if (!channelsRes.ok) {
+        setTestError(channelsData.detail || channelsData.error || 'Failed to list channels');
+        setTestSuccess(false);
+        return;
+      }
+
+      setChannels((channelsData.channels || []).map((ch: { id: string; name: string }) => ({
+        id: ch.id,
+        name: ch.name,
+      })));
       setTestSuccess(true);
       setTestError('');
 
-      // Auto-save tokens on successful connection
-      await safeInvoke('save_slack_tokens', { appToken, botToken });
+      // Save tokens to Key Vault
+      await fetch('/api/sovereign/settings/vault/slack_bot', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: botToken }),
+      }).catch(() => {});
+      await fetch('/api/sovereign/settings/vault/slack_app', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: appToken }),
+      }).catch(() => {});
     } catch (err) {
-      if (isTauri() && !isNotImplemented(err)) console.error('Connection test failed:', err);
-      if (isNotImplemented(err)) {
-        // Backend not ready — show honest error, no fake channels
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Failed to fetch') || msg.includes('Load failed')) {
         setTestError('Slack backend is not ready yet. Start the Docker stack first, then try again.');
-        setTestSuccess(false);
-        toast('Slack backend not available — start Docker stack first', { icon: '⚠️' });
+        toast('NanoClaw not reachable — start Docker stack first', { icon: '⚠️' });
       } else {
         setTestError(friendlyError(err, 'Connection failed. Please check your tokens and try again.'));
-        setTestSuccess(false);
       }
+      setTestSuccess(false);
     } finally {
       setTesting(false);
     }
@@ -177,22 +212,13 @@ export function SlackWizard({ onComplete, onCancel, embedded = false }: SlackWiz
 
     setRegistering(true);
     try {
-      await safeInvoke('register_slack_channel', {
-        channelId: selectedChannelId,
-        name: groupName,
-        trigger: triggerWord,
-      });
-
+      localStorage.setItem('sovereign_slack_channel_id', selectedChannelId);
+      localStorage.setItem('sovereign_slack_group_name', groupName);
+      localStorage.setItem('sovereign_slack_trigger', triggerWord);
+      toast.success('Slack channel configured!');
       onComplete();
     } catch (err) {
-      if (isTauri() && !isNotImplemented(err)) console.error('Failed to register channel:', err);
-      if (isNotImplemented(err)) {
-        // Backend not ready — complete setup anyway (config saved to localStorage)
-        toast('Channel saved in preview mode — backend not ready yet', { icon: '🔜' });
-        onComplete();
-      } else {
-        toast.error('Failed to register channel: ' + friendlyError(err));
-      }
+      toast.error('Failed to save channel config: ' + friendlyError(err));
     } finally {
       setRegistering(false);
     }

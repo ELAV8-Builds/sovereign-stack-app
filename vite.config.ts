@@ -41,6 +41,12 @@ export default defineConfig(async () => ({
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api\/llm/, ""),
       },
+      // Proxy /api/nanoclaw/* to NanoClaw (localhost:18789)
+      "/api/nanoclaw": {
+        target: "http://127.0.0.1:18789",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/nanoclaw/, ""),
+      },
       // Proxy /api/sovereign/* to Sovereign Stack API (localhost:3100)
       "/api/sovereign": {
         target: "http://127.0.0.1:3100",
