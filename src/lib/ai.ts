@@ -76,10 +76,13 @@ export async function chatWithAI(
     { role: 'user', content: userMessage },
   ];
 
+  const apiKey = localGet('litellm_master_key', 'sk-litellm-master');
+
   const response = await fetch(`${LLM_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: DEFAULT_MODEL,
@@ -110,8 +113,10 @@ export async function chatWithAI(
  */
 export async function checkLLMHealth(): Promise<boolean> {
   try {
+    const apiKey = localGet('litellm_master_key', 'sk-litellm-master');
     const response = await fetch(`${LLM_BASE}/health/liveliness`, {
       method: 'GET',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(5000),
     });
     return response.ok;
@@ -125,8 +130,10 @@ export async function checkLLMHealth(): Promise<boolean> {
  */
 export async function getAvailableModels(): Promise<string[]> {
   try {
+    const apiKey = localGet('litellm_master_key', 'sk-litellm-master');
     const response = await fetch(`${LLM_BASE}/models`, {
       method: 'GET',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) return [];
