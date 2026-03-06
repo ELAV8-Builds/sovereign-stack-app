@@ -265,91 +265,9 @@ export function ModelConfiguration() {
         </div>
       </div>
 
-      {/* LiteLLM Tier Reference */}
-      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
-        <h3 className="font-semibold text-lg mb-4 flex items-center space-x-2">
-          <span>📊</span>
-          <span>LiteLLM 9-Tier System</span>
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-purple-400 mb-1">heavy</div>
-            <p className="text-xs text-slate-400">Opus 4.6 - Architecture, strategy</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-blue-400 mb-1">coder</div>
-            <p className="text-xs text-slate-400">Sonnet 4.5 - Code generation</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-blue-400 mb-1">medium</div>
-            <p className="text-xs text-slate-400">Sonnet 4.5 - Research, review</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-green-400 mb-1">light</div>
-            <p className="text-xs text-slate-400">Haiku 4.5 - Quick tasks</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-green-400 mb-1">trivial</div>
-            <p className="text-xs text-slate-400">Haiku - Simple formatting</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-orange-400 mb-1">codex</div>
-            <p className="text-xs text-slate-400">GPT-5.2 - Complex code</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-orange-400 mb-1">crosscheck</div>
-            <p className="text-xs text-slate-400">GPT-5.2 - Alt perspectives</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-red-400 mb-1">critic</div>
-            <p className="text-xs text-slate-400">GPT-5.2 - Security review</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded">
-            <div className="font-medium text-pink-400 mb-1">creative</div>
-            <p className="text-xs text-slate-400">Gemini 3.1 - Visual design</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Lane Descriptions */}
-      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
-        <h3 className="font-semibold text-lg mb-4 flex items-center space-x-2">
-          <span>📚</span>
-          <span>Lane Descriptions (7 Total)</span>
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="font-medium text-slate-200 mb-1">🏗️ Architect</div>
-            <p className="text-xs text-slate-400">System design, architecture decisions, critical planning</p>
-          </div>
-          <div>
-            <div className="font-medium text-slate-200 mb-1">👨‍💻 Engineer</div>
-            <p className="text-xs text-slate-400">Feature implementation, bug fixes, code generation</p>
-          </div>
-          <div>
-            <div className="font-medium text-slate-200 mb-1">⚡ Copilot</div>
-            <p className="text-xs text-slate-400">Quick iterations, formatting, simple edits, autocomplete</p>
-          </div>
-          <div>
-            <div className="font-medium text-slate-200 mb-1">🎯 Planning</div>
-            <p className="text-xs text-slate-400">Strategy, product decisions, project planning</p>
-          </div>
-          <div>
-            <div className="font-medium text-slate-200 mb-1">🎨 Visual</div>
-            <p className="text-xs text-slate-400">UI/UX design, screenshot analysis, motion graphics</p>
-          </div>
-          <div>
-            <div className="font-medium text-slate-200 mb-1">🛡️ Safety</div>
-            <p className="text-xs text-slate-400">Security review, red-teaming, quality assurance</p>
-          </div>
-          <div className="md:col-span-2">
-            <div className="font-medium text-slate-200 mb-1 flex items-center space-x-2">
-              <span>🧠 Compound</span>
-              <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded-full">NEW</span>
-            </div>
-            <p className="text-xs text-slate-400">Post-task knowledge capture, learning from mistakes, preventing repeated failures. Runs 5 sub-agents to analyze problems, find root causes, document solutions, and build institutional knowledge.</p>
-          </div>
-        </div>
+      {/* Reference link */}
+      <div className="text-xs text-slate-500 text-center pt-2">
+        Full LiteLLM tier reference and lane descriptions available in Settings → Advanced → About
       </div>
     </div>
   );

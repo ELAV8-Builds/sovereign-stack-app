@@ -67,6 +67,7 @@ export function ChatInterface() {
   const [agentToolCalls, setAgentToolCalls] = useState<AgentToolCall[]>([]);
   const [agentThinking, setAgentThinking] = useState("");
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [showLaunchAgent, setShowLaunchAgent] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -507,6 +508,16 @@ export function ChatInterface() {
               {agentMode ? "⚡ Agent" : "💬 Chat"}
             </button>
 
+            {/* Launch Agent Button */}
+            <button
+              onClick={() => setShowLaunchAgent(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-800 bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 transition-all cursor-pointer"
+              title="Launch a new agent"
+            >
+              <span className="text-sm leading-none">+</span>
+              New Agent
+            </button>
+
             {llmAvailable === false && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400 border border-yellow-800">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
@@ -717,6 +728,84 @@ export function ChatInterface() {
           </div>
         </div>
       </div>
+
+      {/* Launch Agent Dialog */}
+      {showLaunchAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🚀</span>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Launch New Agent</h2>
+                  <p className="text-xs text-slate-500">Fleet Mode — spawn specialized agents</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLaunchAgent(false)}
+                className="text-slate-500 hover:text-white transition-colors p-1"
+              >
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-slate-300">
+                Fleet Mode lets you launch additional AI agents, each in their own secure container with dedicated workspace and tools.
+              </p>
+
+              {/* Agent templates */}
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Agent Templates</p>
+                {[
+                  { icon: '👨‍💻', name: 'Code Assistant', desc: 'Full-stack development with git, npm, and testing tools' },
+                  { icon: '🔬', name: 'Research Agent', desc: 'Web scraping, data analysis, and report generation' },
+                  { icon: '🛠️', name: 'DevOps Agent', desc: 'Docker, CI/CD, infrastructure management' },
+                  { icon: '📝', name: 'Custom Agent', desc: 'Configure tools and workspace from scratch' },
+                ].map((template) => (
+                  <div
+                    key={template.name}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/60 border border-slate-700/50 opacity-60 cursor-not-allowed"
+                  >
+                    <span className="text-2xl">{template.icon}</span>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-slate-300">{template.name}</div>
+                      <div className="text-xs text-slate-500">{template.desc}</div>
+                    </div>
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-400 border border-slate-600">
+                      Coming Soon
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Status notice */}
+              <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-400 text-sm">ℹ️</span>
+                  <p className="text-xs text-blue-300">
+                    Fleet Mode is being built as the next major feature. Each agent will run in its own Docker container with isolated workspace, dedicated tools, and the ability to collaborate with other agents on your team.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/50">
+              <button
+                onClick={() => setShowLaunchAgent(false)}
+                className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium text-slate-300 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
