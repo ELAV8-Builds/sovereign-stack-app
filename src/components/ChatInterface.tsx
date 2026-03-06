@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { safeInvoke, localGet } from "@/lib/tauri";
+import { safeInvoke, localGet, localSet } from "@/lib/tauri";
 import { chatWithAI, checkLLMHealth } from "@/lib/ai";
 import { chatWithAgent, type AgentToolCall } from "@/lib/agent";
 import {
@@ -56,7 +56,9 @@ export function ChatInterface() {
     slack: false,
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    () => localGet<string | null>("active_conversation_id", null)
+  );
   const [conversationLoading, setConversationLoading] = useState(false);
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
 
@@ -84,11 +86,23 @@ export function ChatInterface() {
     status: "sent",
   };
 
-  // ── Check LLM availability ────────────────────────────────────────────
+  // ── Check LLM availability (with periodic re-check) ──────────────────
+
+  const recheckHealth = useCallback(async () => {
+    const healthy = await checkLLMHealth();
+    setLlmAvailable(healthy);
+    return healthy;
+  }, []);
 
   useEffect(() => {
-    checkLLMHealth().then(setLlmAvailable);
-  }, []);
+    recheckHealth();
+    // Re-check every 30s when disconnected, every 60s when connected
+    const interval = setInterval(
+      recheckHealth,
+      llmAvailable === false ? 15_000 : 60_000
+    );
+    return () => clearInterval(interval);
+  }, [llmAvailable, recheckHealth]);
 
   // ── Auto-scroll ───────────────────────────────────────────────────────
 
@@ -135,6 +149,23 @@ export function ChatInterface() {
     },
     []
   );
+
+  // ── Persist active conversation ID to survive navigation ────────────
+
+  useEffect(() => {
+    if (activeConversationId) {
+      localSet("active_conversation_id", activeConversationId);
+    }
+  }, [activeConversationId]);
+
+  // ── Auto-reload last conversation on mount ──────────────────────────
+
+  useEffect(() => {
+    if (activeConversationId && messages.length === 0) {
+      loadConversation(activeConversationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Create new conversation ───────────────────────────────────────────
 
@@ -374,21 +405,42 @@ export function ChatInterface() {
         // Both failed
       }
 
-      if (llmAvailable !== false) {
-        setLlmAvailable(false);
-      }
+      // Re-check health — the backend may have recovered
+      const stillDown = !(await recheckHealth());
 
-      const errorMsg: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: "agent",
-        content: `I can't respond right now — the AI backend isn't reachable.\n\nTo fix this:\n1. Make sure Docker Desktop is running\n2. Check that the Sovereign Stack is started: \`docker compose up -d\`\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\n\nYou can restart the setup from Settings > Advanced > Restart Onboarding.`,
-        timestamp: new Date(),
-        status: "error",
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-      toast.error("AI not connected — check that Docker stack is running", {
-        duration: 5000,
-      });
+      if (stillDown) {
+        const errorMsg: ChatMessage = {
+          id: `error-${Date.now()}`,
+          role: "agent",
+          content: `I can't respond right now — the AI backend isn't reachable.\n\nTo fix this:\n1. Make sure Docker Desktop is running\n2. Check that the Sovereign Stack is started: \`docker compose up -d\`\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\n\nI'll automatically retry when the backend comes back online. You can also click "Retry Connection" below.`,
+          timestamp: new Date(),
+          status: "error",
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+        toast.error("AI not connected — will auto-retry in 15 seconds", {
+          duration: 5000,
+        });
+      } else {
+        // Backend recovered between the failed call and our re-check — retry the send
+        toast("Backend reconnected — retrying your message...", { icon: "🔄" });
+        try {
+          if (agentMode) {
+            await handleSendAgent(trimmed, convId);
+          } else {
+            await handleSendChat(trimmed, convId);
+          }
+        } catch {
+          const errorMsg: ChatMessage = {
+            id: `error-${Date.now()}`,
+            role: "agent",
+            content: `Something went wrong with that request. The backend is online but the request failed. Please try again.`,
+            timestamp: new Date(),
+            status: "error",
+          };
+          setMessages((prev) => [...prev, errorMsg]);
+          toast.error("Request failed — please try again");
+        }
+      }
     }
   };
 
@@ -519,10 +571,22 @@ export function ChatInterface() {
             </button>
 
             {llmAvailable === false && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400 border border-yellow-800">
+              <button
+                onClick={async () => {
+                  toast("Checking AI backend...", { icon: "🔄" });
+                  const ok = await recheckHealth();
+                  if (ok) {
+                    toast.success("AI backend reconnected!");
+                  } else {
+                    toast.error("Still disconnected — check Docker stack");
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400 border border-yellow-800 hover:bg-yellow-900/50 cursor-pointer transition-all"
+                title="Click to retry connection"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-                Preview Mode
-              </span>
+                Disconnected — Retry
+              </button>
             )}
             {llmAvailable === true && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-800">
