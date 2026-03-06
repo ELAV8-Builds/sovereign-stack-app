@@ -132,6 +132,19 @@ export async function listConnections(): Promise<{
   return res.json();
 }
 
+export async function syncNangoConnections(): Promise<{
+  synced: number;
+  total: number;
+  connections: StoredConnection[];
+}> {
+  const res = await fetch(`${API_BASE}/integrations/connections/sync`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`Failed to sync connections: ${res.status}`);
+  return res.json();
+}
+
 export async function deleteConnectionApi(integrationId: string, connectionId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/integrations/connections/${integrationId}/${connectionId}`, {
     method: 'DELETE',
