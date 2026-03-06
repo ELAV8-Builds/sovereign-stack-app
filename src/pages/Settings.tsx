@@ -147,6 +147,8 @@ export default function Settings() {
     media: { label: "Media & Voice", icon: "🎬" },
     communication: { label: "Communication", icon: "💬" },
     search: { label: "Search & Data", icon: "🔍" },
+    business: { label: "Business & Productivity", icon: "💼" },
+    development: { label: "Development & DevOps", icon: "🛠️" },
     infrastructure: { label: "Infrastructure", icon: "⚙️" },
     custom: { label: "Custom Keys", icon: "🔧" },
   };
