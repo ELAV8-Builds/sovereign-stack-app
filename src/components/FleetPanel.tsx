@@ -12,8 +12,11 @@ import {
   stopFleetAgent,
   startFleetAgent,
   deleteFleetAgent,
+  submitAgentTask,
+  getQueueInfo,
   type FleetAgent,
   type FleetTemplate,
+  type QueueInfo,
 } from "@/lib/fleet";
 import toast from "react-hot-toast";
 
@@ -45,20 +48,32 @@ export function FleetPanel({
   const [customName, setCustomName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
+  const [taskInput, setTaskInput] = useState<Record<string, string>>({});
+  const [submittingTask, setSubmittingTask] = useState<string | null>(null);
 
-  // ── Load agents and templates ────────────────────────────────────
+  // ── Load agents, templates, and queue info ──────────────────────
 
   const loadAgents = useCallback(async () => {
     const result = await getFleetAgents();
     setAgents(result);
   }, []);
 
+  const loadQueueInfo = useCallback(async () => {
+    const info = await getQueueInfo();
+    setQueueInfo(info);
+  }, []);
+
   useEffect(() => {
     loadAgents();
-    // Poll every 10 seconds for status changes
-    const interval = setInterval(loadAgents, 10_000);
+    loadQueueInfo();
+    // Poll every 5 seconds for status changes
+    const interval = setInterval(() => {
+      loadAgents();
+      loadQueueInfo();
+    }, 5_000);
     return () => clearInterval(interval);
-  }, [loadAgents]);
+  }, [loadAgents, loadQueueInfo]);
 
   useEffect(() => {
     if (showLaunchDialog && templates.length === 0) {
@@ -146,16 +161,58 @@ export function FleetPanel({
     setConfirmDelete(null);
   };
 
+  // ── Submit background task ───────────────────────────────────────
+
+  const handleSubmitTask = async (agent: FleetAgent) => {
+    const message = taskInput[agent.id]?.trim();
+    if (!message) return;
+
+    setSubmittingTask(agent.id);
+    try {
+      const job = await submitAgentTask(agent.id, message);
+      toast.success(`${agent.icon} Task queued: ${job.id.slice(0, 12)}...`);
+      setTaskInput((prev) => ({ ...prev, [agent.id]: "" }));
+      loadQueueInfo();
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`);
+    } finally {
+      setSubmittingTask(null);
+    }
+  };
+
   // ── Agents List (shown below sidebar) ────────────────────────────
 
   const runningAgents = agents.filter((a) => a.status === "running");
   const stoppedAgents = agents.filter((a) => a.status !== "running");
 
   const AgentList = () => {
-    if (agents.length === 0) return null;
+    if (agents.length === 0 && !queueInfo) return null;
 
     return (
       <div className="border-t border-slate-800 pt-2 mt-2">
+        {/* Queue Status Bar */}
+        {queueInfo && (queueInfo.running > 0 || queueInfo.queued > 0) && (
+          <div className="mx-2 mb-2 px-2 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-slate-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                {queueInfo.running} working · {queueInfo.queued} queued
+              </span>
+              <span className={`${queueInfo.backoffActive ? 'text-amber-400' : 'text-slate-600'}`}>
+                CPU {queueInfo.systemLoad}%
+                {queueInfo.backoffActive && ' ⚠️'}
+              </span>
+            </div>
+            {queueInfo.backoffActive && (
+              <div className="text-[9px] text-amber-400/70 mt-0.5">
+                System load high — new tasks paused
+              </div>
+            )}
+          </div>
+        )}
+
+        {agents.length === 0 ? null : (
+        <>
         <div className="flex items-center justify-between px-2 py-1">
           <span className="text-[10px] uppercase tracking-wider text-slate-600 font-medium">
             Fleet Agents
@@ -166,48 +223,80 @@ export function FleetPanel({
         </div>
 
         {runningAgents.map((agent) => (
-          <button
-            key={agent.id}
-            onClick={() => onSelectAgent(agent)}
-            className={`w-full text-left px-2 py-1.5 rounded-lg text-sm flex items-center gap-2 group transition-all ${
-              activeAgentId === agent.id
-                ? "bg-blue-900/30 text-blue-300 border border-blue-800/50"
-                : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
-            }`}
-          >
-            <span className="text-base">{agent.icon}</span>
-            <div className="flex-1 min-w-0">
-              <div className="truncate text-xs font-medium">{agent.name}</div>
-              <div className="text-[10px] text-slate-600">
-                {agent.message_count || 0} msgs · {agent.model}
+          <div key={agent.id} className="mb-1">
+            <button
+              onClick={() => onSelectAgent(agent)}
+              className={`w-full text-left px-2 py-1.5 rounded-lg text-sm flex items-center gap-2 group transition-all ${
+                activeAgentId === agent.id
+                  ? "bg-blue-900/30 text-blue-300 border border-blue-800/50"
+                  : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+              }`}
+            >
+              <span className="text-base">{agent.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-xs font-medium">{agent.name}</div>
+                <div className="text-[10px] text-slate-600">
+                  {agent.message_count || 0} msgs · {agent.model}
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => handleStop(agent, e)}
+                  className="p-0.5 rounded hover:bg-red-900/30 text-slate-600 hover:text-red-400 transition-colors"
+                  title="Stop agent"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="3" y="3" width="10" height="10" rx="1" />
+                  </svg>
+                </button>
+                <button
+                  onClick={(e) => handleDelete(agent, e)}
+                  className={`p-0.5 rounded transition-colors ${
+                    confirmDelete === agent.id
+                      ? "bg-red-900/50 text-red-400"
+                      : "hover:bg-red-900/30 text-slate-600 hover:text-red-400"
+                  }`}
+                  title={confirmDelete === agent.id ? "Click again to confirm" : "Delete agent"}
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M4 4l8 8M12 4l-8 8" />
+                  </svg>
+                </button>
+              </div>
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+            </button>
+
+            {/* Background task input */}
+            <div className="flex gap-1 px-2 mt-0.5">
+              <input
+                type="text"
+                value={taskInput[agent.id] || ""}
+                onChange={(e) =>
+                  setTaskInput((prev) => ({ ...prev, [agent.id]: e.target.value }))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmitTask(agent);
+                  }
+                }}
+                placeholder="Background task..."
+                className="flex-1 min-w-0 bg-slate-800/50 border border-slate-700/50 rounded px-1.5 py-0.5 text-[10px] text-slate-300 placeholder-slate-600 focus:outline-none focus:border-blue-700"
+              />
               <button
-                onClick={(e) => handleStop(agent, e)}
-                className="p-0.5 rounded hover:bg-red-900/30 text-slate-600 hover:text-red-400 transition-colors"
-                title="Stop agent"
-              >
-                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
-                  <rect x="3" y="3" width="10" height="10" rx="1" />
-                </svg>
-              </button>
-              <button
-                onClick={(e) => handleDelete(agent, e)}
-                className={`p-0.5 rounded transition-colors ${
-                  confirmDelete === agent.id
-                    ? "bg-red-900/50 text-red-400"
-                    : "hover:bg-red-900/30 text-slate-600 hover:text-red-400"
+                onClick={() => handleSubmitTask(agent)}
+                disabled={!taskInput[agent.id]?.trim() || submittingTask === agent.id}
+                className={`px-1.5 py-0.5 rounded text-[10px] transition-all ${
+                  taskInput[agent.id]?.trim() && submittingTask !== agent.id
+                    ? "bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 border border-blue-800/50"
+                    : "bg-slate-800/30 text-slate-700 cursor-not-allowed"
                 }`}
-                title={confirmDelete === agent.id ? "Click again to confirm" : "Delete agent"}
+                title="Send task to run in background"
               >
-                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
+                {submittingTask === agent.id ? "..." : "▶"}
               </button>
             </div>
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-          </button>
+          </div>
         ))}
 
         {stoppedAgents.map((agent) => (
@@ -252,6 +341,8 @@ export function FleetPanel({
             <span className="w-1.5 h-1.5 rounded-full bg-slate-700 flex-shrink-0" />
           </button>
         ))}
+        </>
+        )}
       </div>
     );
   };
