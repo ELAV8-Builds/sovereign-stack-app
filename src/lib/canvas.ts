@@ -2,7 +2,7 @@
  * Canvas API Client — CRUD + generate for canvas pages
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3100';
+const API_BASE = '/api/sovereign';
 
 export interface CanvasPage {
   id: string;
@@ -18,7 +18,7 @@ export interface CanvasPage {
 // ── Page CRUD ──────────────────────────────────────────────────────────
 
 export async function listCanvasPages(): Promise<CanvasPage[]> {
-  const res = await fetch(`${API_BASE}/api/canvas/pages`);
+  const res = await fetch(`${API_BASE}/canvas/pages`);
   if (!res.ok) throw new Error(`Failed to list pages: ${res.status}`);
   return res.json();
 }
@@ -35,7 +35,7 @@ export async function createCanvasPage(data: {
   spec?: object;
   state?: object;
 }): Promise<CanvasPage> {
-  const res = await fetch(`${API_BASE}/api/canvas/pages`, {
+  const res = await fetch(`${API_BASE}/canvas/pages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -96,7 +96,7 @@ export function generateCanvasUI(
 
   (async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/canvas/generate`, {
+      const res = await fetch(`${API_BASE}/canvas/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
