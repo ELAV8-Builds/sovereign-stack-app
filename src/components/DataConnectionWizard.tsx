@@ -16,6 +16,7 @@ import {
   createConnectSession,
   listAvailableIntegrations,
   listConnections,
+  syncNangoConnections,
   listWebhooks,
   createWebhook,
   testUrl,
@@ -160,10 +161,19 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
       if (status.nangoConfigured) {
         const integrations = await listAvailableIntegrations();
         setAvailableIntegrations(integrations?.configs || []);
-      }
 
-      const conns = await listConnections();
-      setActiveConnections(conns.connections || []);
+        // Sync live Nango connections into local DB so existing ones show up
+        try {
+          const synced = await syncNangoConnections();
+          setActiveConnections(synced.connections || []);
+        } catch {
+          const conns = await listConnections();
+          setActiveConnections(conns.connections || []);
+        }
+      } else {
+        const conns = await listConnections();
+        setActiveConnections(conns.connections || []);
+      }
 
       const wh = await listWebhooks();
       setWebhooks(wh);
@@ -217,24 +227,23 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
         duration: 6000,
       });
 
-      // Poll for new connections until the user comes back
+      // Poll: ask the API to sync live Nango connections into local DB
       const beforeCount = activeConnections.length;
       const pollInterval = setInterval(async () => {
         try {
-          const conns = await listConnections();
-          const newConns = conns.connections || [];
-          if (newConns.length > beforeCount) {
+          const result = await syncNangoConnections();
+          if (result.connections.length > beforeCount) {
             clearInterval(pollInterval);
-            setActiveConnections(newConns);
+            setActiveConnections(result.connections);
             setIsConnecting(false);
             toast.success("Connection established!");
+            loadIntegrationData();
           }
         } catch {
           // API hiccup — keep polling
         }
       }, 3000);
 
-      // Stop polling after 5 minutes
       setTimeout(() => {
         clearInterval(pollInterval);
         setIsConnecting(false);
