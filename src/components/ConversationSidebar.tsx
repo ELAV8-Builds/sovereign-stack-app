@@ -19,7 +19,7 @@ import {
   markConversationRead,
   getUnreadConversationIds,
 } from "@/lib/unread";
-import { playTaskCompleteChime } from "@/lib/notifications";
+import { playTaskCompleteChime, playNotificationDing } from "@/lib/notifications";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
@@ -112,6 +112,7 @@ export function ConversationSidebar({
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(loadCollapsedAgents);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
   const [agentJobs, setAgentJobs] = useState<Map<string, AgentJob>>(new Map());
+  const [completedAgents, setCompletedAgents] = useState<Set<string>>(new Set()); // NEW: Track recently completed agents
   const prevAgentStatusRef = useRef<Map<string, string>>(new Map());
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -165,13 +166,23 @@ export function ConversationSidebar({
           if (activeJob) {
             jobMap.set(agent.id, activeJob);
 
-            // Check for completion transition → play chime
+            // Check for completion transition → play chime + show checkmark
             const prevStatus = prevStatuses.get(activeJob.id);
             if (prevStatus === "running" && activeJob.status === "completed") {
               if (activeFleetAgentId !== agent.id) {
                 playTaskCompleteChime();
                 toast.success(`${agent.icon} ${agent.name} finished its task`, { duration: 4000 });
               }
+              
+              // NEW: Show checkmark for 5 seconds
+              setCompletedAgents(prev => new Set(prev).add(agent.id));
+              setTimeout(() => {
+                setCompletedAgents(prev => {
+                  const next = new Set(prev);
+                  next.delete(agent.id);
+                  return next;
+                });
+              }, 5000);
             }
             prevStatuses.set(activeJob.id, activeJob.status);
           }
@@ -354,6 +365,7 @@ export function ConversationSidebar({
               const agentConvs = conversations.filter(c => c.agent_id === agent.id);
               const hasUnread = agentConvs.some(c => unreadIds.has(c.id));
               const isRunning = agent.status === "running";
+              const isCompleted = completedAgents.has(agent.id);
 
               return (
                 <button
@@ -377,6 +389,9 @@ export function ConversationSidebar({
                   )}
                   {isRunning && (
                     <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  )}
+                  {isCompleted && (
+                    <span className="absolute -bottom-0.5 -left-0.5 text-[10px] animate-bounce">✓</span>
                   )}
                 </button>
               );
@@ -642,6 +657,7 @@ export function ConversationSidebar({
                   const isActive = activeFleetAgentId === agent.id;
                   const isCollapsed = collapsedAgents.has(agent.id);
                   const isRunning = agent.status === 'running';
+                  const isCompleted = completedAgents.has(agent.id);
                   const agentUnread = countAgentUnread(agent.id);
                   const color = getAgentColor(agentIndex);
                   const activeJob = agentJobs.get(agent.id);
@@ -699,16 +715,23 @@ export function ConversationSidebar({
                             </div>
                           </div>
                         </button>
-                        {/* Status dot */}
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                            isRunning ? "bg-green-400 animate-pulse" : "bg-slate-600"
-                          }`}
-                          title={isRunning ? "Running" : "Stopped"}
-                        />
+                        {/* Status indicators */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isCompleted && (
+                            <span className="text-green-400 text-[11px] animate-pulse" title="Task completed">
+                              ✓
+                            </span>
+                          )}
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isRunning ? "bg-green-400 animate-pulse" : "bg-slate-600"
+                            }`}
+                            title={isRunning ? "Running" : "Stopped"}
+                          />
+                        </div>
                       </div>
 
-                      {/* Live activity status line */}
+                      {/* Live activity status line - NEW: Enhanced with step info */}
                       {isRunning && activeJob && activeJob.status === "running" && (
                         <div className="px-3 py-1 flex items-center gap-1.5 border-t border-slate-800/50">
                           <span className="animate-spin w-2 h-2 border border-emerald-400 border-t-transparent rounded-full flex-shrink-0" />
@@ -717,7 +740,7 @@ export function ConversationSidebar({
                               ? `Step ${activeJob.progress.iteration} · ${activeJob.progress.currentTool}`
                               : activeJob.progress?.lastThinking
                                 ? `Step ${activeJob.progress.iteration} · ${activeJob.progress.lastThinking.slice(0, 40)}...`
-                                : `Step ${activeJob.progress.iteration} · Working...`
+                                : `Step ${activeJob.progress?.iteration || 1} · Working...`
                             }
                           </span>
                         </div>

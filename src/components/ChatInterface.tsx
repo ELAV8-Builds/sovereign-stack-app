@@ -18,6 +18,7 @@ import { VoiceMicButton, SpeakButton } from "./VoiceControls";
 import { RichMessageBlock, parseRichContent } from "./RichMessageBlock";
 import { InlineImage } from "./InlineImage";
 import { JsonBlock } from "./JsonBlock";
+import { SoundSettings } from "./SoundSettings";
 import { markConversationRead } from "@/lib/unread";
 import { playNotificationDing } from "@/lib/notifications";
 import type { FleetAgent } from "@/lib/fleet";
@@ -82,6 +83,7 @@ export function ChatInterface() {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const abortControllerMapRef = useRef<Record<string, AbortController>>({});
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
+  const [showSoundSettings, setShowSoundSettings] = useState(false);
 
   // Fleet Mode state — persist selection to localStorage
   const [activeFleetAgent, setActiveFleetAgent] = useState<FleetAgent | null>(() => {
@@ -838,6 +840,15 @@ export function ChatInterface() {
               New Agent
             </button>
 
+            {/* Sound Settings Button */}
+            <button
+              onClick={() => setShowSoundSettings(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-all cursor-pointer"
+              title="Sound settings"
+            >
+              🔔
+            </button>
+
             {llmAvailable === false && (
               <button
                 onClick={async () => {
@@ -1149,4 +1160,9 @@ export function ChatInterface() {
 
     </div>
   );
+      {/* Sound Settings Modal */}
+      {showSoundSettings && (
+        <SoundSettings onClose={() => setShowSoundSettings(false)} />
+      )}
+
 }
