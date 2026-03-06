@@ -66,14 +66,14 @@ export function ChatInterface() {
   const [conversationLoading, setConversationLoading] = useState(false);
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
 
-  // Agent mode state
-  const [agentMode, setAgentMode] = useState(true); // Default: agent mode ON
-  const [agentRunning, setAgentRunning] = useState(false);
-  const [agentIteration, setAgentIteration] = useState(0);
-  const [agentToolCalls, setAgentToolCalls] = useState<AgentToolCall[]>([]);
-  const [agentThinking, setAgentThinking] = useState("");
+  // Agent mode state — per-conversation so fleet agents run concurrently
+  const [agentMode, setAgentMode] = useState(true);
+  const [agentRunningMap, setAgentRunningMap] = useState<Record<string, boolean>>({});
+  const [agentIterationMap, setAgentIterationMap] = useState<Record<string, number>>({});
+  const [agentToolCallsMap, setAgentToolCallsMap] = useState<Record<string, AgentToolCall[]>>({});
+  const [agentThinkingMap, setAgentThinkingMap] = useState<Record<string, string>>({});
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllerMapRef = useRef<Record<string, AbortController>>({});
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
 
   // Fleet Mode state — persist selection to localStorage
@@ -88,6 +88,14 @@ export function ChatInterface() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Derive current-conversation agent state from the maps
+  const convKey = activeFleetAgent?.conversation_id ?? activeConversationId ?? "__none__";
+  const agentRunning = agentRunningMap[convKey] ?? false;
+  const agentIteration = agentIterationMap[convKey] ?? 0;
+  const agentToolCalls = agentToolCallsMap[convKey] ?? [];
+  const agentThinking = agentThinkingMap[convKey] ?? "";
+  const anyAgentRunning = Object.values(agentRunningMap).some(Boolean);
 
   // ── Welcome message ───────────────────────────────────────────────────
 
@@ -275,24 +283,28 @@ export function ChatInterface() {
   // ── Stop agent ────────────────────────────────────────────────────────
 
   const handleStopAgent = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    const key = convKey;
+    if (abortControllerMapRef.current[key]) {
+      abortControllerMapRef.current[key].abort();
+      delete abortControllerMapRef.current[key];
     }
-    setAgentRunning(false);
+    setAgentRunningMap((prev) => ({ ...prev, [key]: false }));
     setIsTyping(false);
   };
 
   // ── Send message (Agent Mode) ─────────────────────────────────────────
 
   const handleSendAgent = async (trimmed: string, convId: string | null) => {
-    setAgentRunning(true);
-    setAgentIteration(0);
-    setAgentToolCalls([]);
-    setAgentThinking("");
+    // Capture the conversation key at send time so callbacks always target the right conversation
+    const sendKey = activeFleetAgent?.conversation_id ?? convId ?? "__none__";
+
+    setAgentRunningMap((prev) => ({ ...prev, [sendKey]: true }));
+    setAgentIterationMap((prev) => ({ ...prev, [sendKey]: 0 }));
+    setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [] }));
+    setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: "" }));
 
     const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    abortControllerMapRef.current[sendKey] = abortController;
 
     const history = messages
       .filter((m) => m.id !== "welcome")
@@ -305,7 +317,6 @@ export function ChatInterface() {
     const collectedToolCalls: AgentToolCall[] = [];
     let thinkingText = "";
 
-    // Fleet Mode: use fleet agent's conversation and system prompt
     const effectiveConvId = activeFleetAgent
       ? activeFleetAgent.conversation_id
       : convId;
@@ -325,16 +336,16 @@ export function ChatInterface() {
         history,
         {
           onStatus: (iteration) => {
-            setAgentIteration(iteration);
+            setAgentIterationMap((prev) => ({ ...prev, [sendKey]: iteration }));
           },
           onThinking: (text) => {
             thinkingText += text;
-            setAgentThinking(thinkingText);
+            setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: thinkingText }));
           },
           onToolCall: (id, tool, input) => {
             const newCall: AgentToolCall = { id, tool, input, status: 'running' };
             collectedToolCalls.push(newCall);
-            setAgentToolCalls([...collectedToolCalls]);
+            setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [...collectedToolCalls] }));
           },
           onToolResult: (id, _tool, output, durationMs) => {
             const call = collectedToolCalls.find(c => c.id === id);
@@ -342,7 +353,7 @@ export function ChatInterface() {
               call.output = output;
               call.status = (output as Record<string, unknown>).error ? 'error' : 'completed';
               call.duration_ms = durationMs;
-              setAgentToolCalls([...collectedToolCalls]);
+              setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [...collectedToolCalls] }));
             }
           },
           onMessage: (text) => {
@@ -357,12 +368,12 @@ export function ChatInterface() {
             };
 
             setIsTyping(false);
-            setAgentRunning(false);
-            setAgentToolCalls([]);
-            setAgentThinking("");
+            setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
+            setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [] }));
+            setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: "" }));
             setMessages((prev) => [...prev, agentMsg]);
+            delete abortControllerMapRef.current[sendKey];
 
-            // Persist agent response
             if (convId && apiAvailable !== false) {
               addMessage(convId, "agent", text).catch(() => {});
             }
@@ -371,8 +382,9 @@ export function ChatInterface() {
             toast.error(`Agent error: ${error}`, { duration: 5000 });
           },
           onDone: () => {
-            setAgentRunning(false);
+            setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
             setIsTyping(false);
+            delete abortControllerMapRef.current[sendKey];
           },
         },
         abortController.signal,
@@ -383,15 +395,14 @@ export function ChatInterface() {
         setLlmAvailable(true);
       }
 
-      // If onMessage wasn't called but we got a final message from the promise
       if (finalMessage && !messages.find(m => m.content === finalMessage)) {
-        // The onMessage callback should have handled this, but just in case
+        // The onMessage callback should have handled this
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
         toast('Agent stopped', { icon: '🛑' });
       } else {
-        throw err; // Let the outer handler deal with it
+        throw err;
       }
     }
   };
@@ -477,7 +488,7 @@ export function ChatInterface() {
       }
     } catch (err) {
       setIsTyping(false);
-      setAgentRunning(false);
+      setAgentRunningMap((prev) => ({ ...prev, [convKey]: false }));
 
       // Fallback to Tauri backend
       try {
@@ -1022,6 +1033,11 @@ export function ChatInterface() {
             {agentRunning && (
               <span className="text-[10px] text-amber-400 animate-pulse">
                 Working on step {agentIteration}...
+              </span>
+            )}
+            {!agentRunning && anyAgentRunning && (
+              <span className="text-[10px] text-blue-400/60">
+                Other agents working...
               </span>
             )}
           </div>
