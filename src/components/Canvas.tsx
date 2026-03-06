@@ -17,7 +17,9 @@ import {
   duplicateCanvasPage,
   generateCanvasUI,
   refreshCanvasData,
+  getVaultStatus,
   type CanvasPage,
+  type VaultKeyStatus,
 } from "@/lib/canvas";
 import { DataConnectionWizard } from "./DataConnectionWizard";
 import type { DataSourceConfig } from "@/lib/integrations";
@@ -86,6 +88,7 @@ export function Canvas() {
   const [editNameValue, setEditNameValue] = useState("");
   const [showWizard, setShowWizard] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [vaultKeys, setVaultKeys] = useState<VaultKeyStatus[]>([]);
   const abortRef = useRef<(() => void) | null>(null);
   const elementsRef = useRef<SpecElement[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -111,6 +114,12 @@ export function Canvas() {
   useEffect(() => {
     loadPages();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load vault status for smart suggestions ─────────────────────────
+
+  useEffect(() => {
+    getVaultStatus().then(setVaultKeys).catch(() => {});
+  }, []);
 
   // ── Select a page ──────────────────────────────────────────────────
 
@@ -279,6 +288,13 @@ export function Canvas() {
           const spec = elementsToSpec([...elementsRef.current]);
           if (spec) setActiveSpec(spec);
         },
+        onIntegrationStatus: (event) => {
+          if (event.status === 'missing_key') {
+            toast(event.message, { icon: '\u26A0\uFE0F', duration: 6000 });
+          } else if (event.status === 'connected') {
+            toast.success(`${event.service} connected`, { duration: 3000 });
+          }
+        },
         onError: (error) => {
           toast.error(`Generation failed: ${error}`);
           setIsGenerating(false);
@@ -350,63 +366,123 @@ export function Canvas() {
     }
   };
 
+  // ── Smart suggestion definitions ────────────────────────────────────
+
+  const SMART_SUGGESTIONS = [
+    // Available when specific vault keys are configured
+    { keys: ['slack_bot'], icon: '\u{1F4AC}', title: 'Slack Priority Briefing', prompt: 'Connect to Slack, scan my channels, and build a priority briefing showing urgent messages, action items, and key decisions I need to make', service: 'Slack' },
+    { keys: ['brave_search'], icon: '\u{1F50D}', title: 'Competitive Intelligence', prompt: 'Research my top 5 competitors using web search and build a comparison dashboard with pricing, features, and market positioning', service: 'Brave Search' },
+    { keys: ['openai', 'anthropic'], icon: '\u{1F3D7}\uFE0F', title: 'Architecture Overview', prompt: 'Analyze the codebase in this workspace and generate an architecture diagram with component dependencies, data flow, and tech stack summary', service: 'AI Analysis' },
+    { keys: ['elevenlabs'], icon: '\u{1F399}\uFE0F', title: 'Voice Content Studio', prompt: 'Create a voice content dashboard where I can write scripts, generate audio previews, and manage my voice content library', service: 'ElevenLabs' },
+    // Always available (no vault key requirement)
+    { keys: [] as string[], icon: '\u{1F4CA}', title: 'Connect to Notion & Summarize Marketing', prompt: 'Connect to my Notion workspace, find all marketing-related pages and databases, and build a summary dashboard with campaign status, content calendar, and key metrics', service: 'Custom API' },
+    { keys: [] as string[], icon: '\u{1F4B0}', title: 'QuickBooks P&L with CPA Advice', prompt: 'Connect to QuickBooks, pull my Profit & Loss statement, and build an interactive financial dashboard with AI-powered CPA-level advice on tax optimization and cash flow', service: 'Custom API' },
+    { keys: [] as string[], icon: '\u{1F4E7}', title: 'Email Triage & Priority Board', prompt: 'Connect to my email, scan the last 48 hours, and build a triage board showing urgent items, follow-ups needed, and emails I can safely archive', service: 'Custom API' },
+    { keys: [] as string[], icon: '\u{1F4C8}', title: 'Build a Live API Dashboard', prompt: 'I want to connect to a custom API endpoint and build a real-time monitoring dashboard that auto-refreshes with the latest data', service: 'Any API' },
+  ];
+
   // ── Empty state ────────────────────────────────────────────────────
 
-  const EmptyState = () => (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center max-w-lg px-8">
-        <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center">
-          <SparkleIcon />
-        </div>
-        <h2 className="text-xl font-semibold text-white mb-2">Visual Workspace</h2>
-        <p className="text-sm text-slate-400 mb-8 leading-relaxed">
-          Create dashboards, reports, and interactive views powered by AI.
-          Describe what you want and watch it build live.
-        </p>
+  const EmptyState = () => {
+    const configuredIds = new Set(vaultKeys.filter(k => k.configured).map(k => k.id));
+    const configuredCount = configuredIds.size;
 
-        <div className="grid grid-cols-2 gap-3 mb-8">
-          {[
-            { icon: "📊", label: "Sales Dashboard", prompt: "Create a sales dashboard with revenue metrics, deal pipeline by stage, and a table of recent deals" },
-            { icon: "📋", label: "Project Tracker", prompt: "Build a project tracker with task status cards, a progress bar, and a team member list" },
-            { icon: "📈", label: "Analytics Report", prompt: "Design an analytics report with key metrics, comparison tables, and trend indicators" },
-            { icon: "🎯", label: "KPI Overview", prompt: "Create a KPI dashboard with metric cards for MRR, churn rate, customer count, and NPS score" },
-          ].map((template) => (
+    // Prioritize suggestions: ones with ALL required keys configured first, then always-available
+    const keyed = SMART_SUGGESTIONS
+      .filter(s => s.keys.length > 0 && s.keys.every(k => configuredIds.has(k)));
+    const always = SMART_SUGGESTIONS.filter(s => s.keys.length === 0);
+    const suggestions = [...keyed, ...always].slice(0, 6);
+
+    return (
+      <div className="flex-1 flex items-center justify-center overflow-y-auto">
+        <div className="max-w-2xl w-full px-8 py-12">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center">
+              <SparkleIcon />
+            </div>
+            <h2 className="text-xl font-semibold text-white mb-2">What should we build?</h2>
+            <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
+              Describe any idea and watch it come to life. Connect your APIs for real data-powered dashboards.
+            </p>
+          </div>
+
+          {/* Connected services indicator */}
+          {configuredCount > 0 && (
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs text-emerald-400 font-medium">
+                  {configuredCount} service{configuredCount !== 1 ? 's' : ''} connected
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Smart suggestion cards */}
+          <div className="grid grid-cols-2 gap-3 mb-8">
+            {suggestions.map((suggestion) => {
+              const isConnected = suggestion.keys.length > 0 && suggestion.keys.every(k => configuredIds.has(k));
+              return (
+                <button
+                  key={suggestion.title}
+                  onClick={async () => {
+                    try {
+                      const page = await createCanvasPage({ name: suggestion.title, icon: suggestion.icon });
+                      setPages(prev => [page, ...prev]);
+                      setActivePage(page);
+                      setPrompt(suggestion.prompt);
+                      setTimeout(() => inputRef.current?.focus(), 100);
+                    } catch {
+                      toast.error("Failed to create page");
+                    }
+                  }}
+                  className="text-left p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-indigo-500/20 transition-all group relative"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="text-2xl">{suggestion.icon}</span>
+                    {isConnected && (
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <div className="w-1 h-1 rounded-full bg-emerald-400" />
+                        Live
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors block mb-1">
+                    {suggestion.title}
+                  </span>
+                  <span className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                    {suggestion.prompt.slice(0, 80)}...
+                  </span>
+                  <div className="mt-2.5 flex items-center gap-1">
+                    <span className="text-[10px] text-slate-600 font-medium px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.04]">
+                      {suggestion.service}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-center gap-3">
             <button
-              key={template.label}
-              onClick={async () => {
-                const page = await createCanvasPage({ name: template.label, icon: template.icon });
-                setPages(prev => [page, ...prev]);
-                setActivePage(page);
-                setPrompt(template.prompt);
-                setTimeout(() => inputRef.current?.focus(), 100);
-              }}
-              className="text-left p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-indigo-500/20 transition-all group"
+              onClick={handleNewPage}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
             >
-              <span className="text-2xl mb-2 block">{template.icon}</span>
-              <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">
-                {template.label}
-              </span>
+              <SparkleIcon /> Create with Data
             </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleNewPage}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
-          >
-            <SparkleIcon /> Create with Data
-          </button>
-          <button
-            onClick={handleQuickNewPage}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 text-sm font-medium transition-colors border border-white/[0.08]"
-          >
-            <PlusIcon /> Blank Page
-          </button>
+            <button
+              onClick={handleQuickNewPage}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 text-sm font-medium transition-colors border border-white/[0.08]"
+            >
+              <PlusIcon /> Blank Page
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ── Render ─────────────────────────────────────────────────────────
 

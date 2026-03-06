@@ -26,11 +26,21 @@ import {
   type WebhookDataSource,
   type DataSourceConfig,
 } from "@/lib/integrations";
+import { getVaultStatus, type VaultKeyStatus } from "@/lib/canvas";
 import toast from "react-hot-toast";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 type WizardStep = "describe" | "connect" | "building" | "done";
+
+interface DiscoveryResult {
+  success: boolean;
+  statusCode?: number;
+  contentType?: string;
+  schemaHints?: any;
+  needsAuth?: boolean;
+  error?: string;
+}
 
 interface DataConnectionWizardProps {
   onComplete: (result: {
@@ -134,15 +144,18 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Custom webhook form
-  const [showCustomForm, setShowCustomForm] = useState(false);
+  // Custom API — streamlined URL-only flow
   const [customUrl, setCustomUrl] = useState("");
-  const [customName, setCustomName] = useState("");
-  const [customMethod, setCustomMethod] = useState("GET");
-  const [customAuthType, setCustomAuthType] = useState<"none" | "bearer" | "api_key" | "basic">("none");
   const [customAuthToken, setCustomAuthToken] = useState("");
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
+
+  // Vault key status
+  const [vaultKeys, setVaultKeys] = useState<VaultKeyStatus[]>([]);
+
+  // Status feed during build
+  const [statusMessages, setStatusMessages] = useState<string[]>([]);
+  const [isBuilding, setIsBuilding] = useState(false);
 
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
@@ -167,6 +180,10 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
 
       const wh = await listWebhooks();
       setWebhooks(wh);
+
+      // Load vault key status
+      const keys = await getVaultStatus();
+      setVaultKeys(keys);
     } catch {
       // Services might not be ready yet
     }
@@ -283,74 +300,109 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
     setSelectedSources(prev => prev.filter(s => s.id !== id));
   };
 
-  // ── Test custom URL ─────────────────────────────────────────────────
+  // ── Auto-discover custom URL ────────────────────────────────────────
 
-  const handleTestUrl = async () => {
+  const handleAutoDiscover = async () => {
     if (!customUrl.trim()) return;
-    setIsTesting(true);
-    setTestResult(null);
+    setIsDiscovering(true);
+    setDiscoveryResult(null);
 
     try {
-      const headers: Record<string, string> = {};
-      if (customAuthType === "bearer" && customAuthToken) {
-        headers["Authorization"] = `Bearer ${customAuthToken}`;
-      }
-
       const result = await testUrl({
         url: customUrl.trim(),
-        method: customMethod,
-        headers,
+        method: 'GET',
+        headers: customAuthToken ? { 'Authorization': `Bearer ${customAuthToken}` } : {},
       });
 
-      setTestResult(result);
       if (result.success) {
-        toast.success(`API responded with ${result.statusCode}`);
+        setDiscoveryResult({
+          success: true,
+          statusCode: result.statusCode,
+          contentType: result.contentType,
+          schemaHints: result.schemaHints,
+        });
+      } else if (result.statusCode === 401 || result.statusCode === 403) {
+        setDiscoveryResult({
+          success: false,
+          needsAuth: true,
+          statusCode: result.statusCode,
+        });
       } else {
-        toast.error(`API returned ${result.statusCode}`);
+        setDiscoveryResult({
+          success: false,
+          error: `API returned ${result.statusCode}`,
+          statusCode: result.statusCode,
+        });
       }
     } catch (err: any) {
-      setTestResult({ success: false, error: err.message });
-      toast.error(err.message);
+      setDiscoveryResult({
+        success: false,
+        error: err.message || 'Could not connect to URL',
+      });
     }
-    setIsTesting(false);
+
+    setIsDiscovering(false);
   };
 
-  // ── Save custom webhook ─────────────────────────────────────────────
+  // ── Auto-save webhook from discovered URL ─────────────────────────
 
-  const handleSaveCustomWebhook = async () => {
-    if (!customUrl.trim() || !customName.trim()) return;
+  const handleAutoSaveWebhook = async () => {
+    if (!customUrl.trim()) return;
 
     try {
+      // Auto-generate name from URL hostname
+      const hostname = new URL(customUrl.trim()).hostname.replace('api.', '').replace('www.', '');
+      const domainBase = hostname.split('.')[0];
+      const autoName = domainBase.charAt(0).toUpperCase() + domainBase.slice(1) + ' API';
+
       const authConfig: Record<string, string> = {};
-      if (customAuthType === "bearer") authConfig.token = customAuthToken;
+      const authType = customAuthToken ? 'bearer' as const : 'none' as const;
+      if (customAuthToken) authConfig.token = customAuthToken;
 
       const webhook = await createWebhook({
-        name: customName.trim(),
+        name: autoName,
         url: customUrl.trim(),
-        method: customMethod,
-        authType: customAuthType,
+        method: 'GET',
+        authType,
         authConfig,
       });
 
       setWebhooks(prev => [webhook, ...prev]);
       addWebhookSource(webhook);
 
-      // Reset form
-      setShowCustomForm(false);
-      setCustomUrl("");
-      setCustomName("");
-      setCustomMethod("GET");
-      setCustomAuthType("none");
-      setCustomAuthToken("");
-      setTestResult(null);
+      // Reset
+      setCustomUrl('');
+      setCustomAuthToken('');
+      setDiscoveryResult(null);
+
+      toast.success(`Connected to ${autoName}`);
     } catch (err: any) {
       toast.error(`Failed to save: ${err.message}`);
     }
   };
 
-  // ── Step 2 → Complete ──────────────────────────────────────────────
+  // ── Step 2 → Build (with status feed) ──────────────────────────────
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
+    setIsBuilding(true);
+    setStep("building");
+    setStatusMessages([]);
+
+    const addStatus = (msg: string) => setStatusMessages(prev => [...prev, msg]);
+
+    addStatus("Preparing data sources...");
+
+    // Brief pause for each source to show progress
+    for (const src of selectedSources) {
+      await new Promise(r => setTimeout(r, 400));
+      addStatus(`Connecting to ${src.displayName}...`);
+    }
+
+    await new Promise(r => setTimeout(r, 500));
+    addStatus("Building your dashboard...");
+
+    await new Promise(r => setTimeout(r, 600));
+
     onComplete({
       prompt: description.trim(),
       dataSources: { sources: selectedSources },
@@ -513,6 +565,25 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
                 </div>
               )}
 
+              {/* Vault key status */}
+              {vaultKeys.length > 0 && (
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                  <span className="text-[10px] text-slate-500 font-medium">Keys:</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="flex items-center gap-1 text-[10px]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <span className="text-slate-400">{vaultKeys.filter(k => k.configured).length} configured</span>
+                    </span>
+                    {vaultKeys.filter(k => !k.configured).length > 0 && (
+                      <span className="flex items-center gap-1 text-[10px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
+                        <span className="text-slate-500">{vaultKeys.filter(k => !k.configured).length} missing</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Source type tabs */}
               <div className="flex items-center gap-1 bg-white/[0.03] rounded-xl p-1">
                 <button
@@ -666,10 +737,10 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
                 </div>
               )}
 
-              {/* ── Custom API Tab ─────────────────────────────────── */}
+              {/* ── Custom API Tab — Streamlined URL-only flow ──── */}
               {connectTab === "custom" && (
                 <div className="space-y-3">
-                  {/* Existing webhooks */}
+                  {/* Existing saved webhooks */}
                   {webhooks.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-slate-400 mb-2">Saved APIs</p>
@@ -712,166 +783,165 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
                     </div>
                   )}
 
-                  {/* Add custom API */}
-                  {!showCustomForm ? (
-                    <button
-                      onClick={() => setShowCustomForm(true)}
-                      className="w-full flex items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-white/[0.08] hover:border-indigo-500/20 text-xs text-slate-500 hover:text-slate-300 transition-all"
-                    >
-                      <PlusIcon /> Add Custom API Endpoint
-                    </button>
-                  ) : (
-                    <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-medium text-slate-300">New Custom API</p>
-                        <button
-                          onClick={() => {
-                            setShowCustomForm(false);
-                            setTestResult(null);
-                          }}
-                          className="text-slate-500 hover:text-white"
-                        >
-                          <XIcon />
-                        </button>
-                      </div>
+                  {/* Simplified URL-only input */}
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] space-y-3">
+                    <p className="text-xs font-medium text-slate-300">Connect to any API</p>
+                    <p className="text-[11px] text-slate-500">Just paste the endpoint URL — we'll figure out the rest</p>
 
+                    <div className="flex gap-2">
                       <input
-                        value={customName}
-                        onChange={(e) => setCustomName(e.target.value)}
-                        placeholder="Connection name (e.g. 'My CRM API')"
-                        className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/30"
+                        value={customUrl}
+                        onChange={(e) => setCustomUrl(e.target.value)}
+                        placeholder="https://api.example.com/v1/data"
+                        className="flex-1 px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/30"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && customUrl.trim()) handleAutoDiscover();
+                        }}
                       />
+                      <button
+                        onClick={handleAutoDiscover}
+                        disabled={!customUrl.trim() || isDiscovering}
+                        className="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white disabled:opacity-50 transition-all flex items-center gap-1.5"
+                      >
+                        {isDiscovering ? (
+                          <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
+                        ) : (
+                          <LinkIcon />
+                        )}
+                        {isDiscovering ? 'Discovering...' : 'Connect'}
+                      </button>
+                    </div>
 
-                      <div className="flex gap-2">
-                        <select
-                          value={customMethod}
-                          onChange={(e) => setCustomMethod(e.target.value)}
-                          className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs text-white focus:outline-none focus:border-indigo-500/30"
-                        >
-                          <option value="GET">GET</option>
-                          <option value="POST">POST</option>
-                          <option value="PUT">PUT</option>
-                        </select>
-                        <input
-                          value={customUrl}
-                          onChange={(e) => setCustomUrl(e.target.value)}
-                          placeholder="https://api.example.com/data"
-                          className="flex-1 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/30"
-                        />
+                    {/* Discovery result */}
+                    {discoveryResult && (
+                      <div className={`p-3 rounded-lg text-xs ${
+                        discoveryResult.success
+                          ? "bg-emerald-500/5 border border-emerald-500/20"
+                          : discoveryResult.needsAuth
+                            ? "bg-amber-500/5 border border-amber-500/20"
+                            : "bg-red-500/5 border border-red-500/20"
+                      }`}>
+                        {discoveryResult.success ? (
+                          <>
+                            <p className="text-emerald-400 font-medium">API responded ({discoveryResult.statusCode})</p>
+                            <p className="text-slate-400 mt-1">
+                              {discoveryResult.contentType?.includes('json')
+                                ? `JSON response with ${Object.keys(discoveryResult.schemaHints || {}).length} fields detected`
+                                : `${discoveryResult.contentType || 'Unknown'} response`}
+                            </p>
+                          </>
+                        ) : discoveryResult.needsAuth ? (
+                          <>
+                            <p className="text-amber-400 font-medium">Authentication required</p>
+                            <p className="text-slate-400 mt-1">This API needs a key or token to access</p>
+                          </>
+                        ) : (
+                          <p className="text-red-400">{discoveryResult.error || 'Could not connect'}</p>
+                        )}
                       </div>
+                    )}
 
-                      {/* Auth */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500">Auth:</span>
-                        {(["none", "bearer", "api_key", "basic"] as const).map((at) => (
-                          <button
-                            key={at}
-                            onClick={() => setCustomAuthType(at)}
-                            className={`px-2 py-1 rounded text-[10px] transition-all ${
-                              customAuthType === at
-                                ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/20"
-                                : "bg-white/[0.03] text-slate-500 border border-white/[0.06]"
-                            }`}
-                          >
-                            {at === "none" ? "None" : at === "bearer" ? "Bearer" : at === "api_key" ? "API Key" : "Basic"}
-                          </button>
-                        ))}
-                      </div>
-
-                      {customAuthType !== "none" && (
+                    {/* Auth input — only shown when needed */}
+                    {discoveryResult?.needsAuth && (
+                      <div className="space-y-2">
                         <input
                           value={customAuthToken}
                           onChange={(e) => setCustomAuthToken(e.target.value)}
-                          placeholder={
-                            customAuthType === "bearer" ? "Bearer token"
-                            : customAuthType === "api_key" ? "API key"
-                            : "username:password"
-                          }
+                          placeholder="API key or Bearer token"
                           type="password"
                           className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/30"
                         />
-                      )}
-
-                      {/* Test result */}
-                      {testResult && (
-                        <div className={`p-3 rounded-lg text-xs ${
-                          testResult.success
-                            ? "bg-emerald-500/5 border border-emerald-500/20 text-emerald-400"
-                            : "bg-red-500/5 border border-red-500/20 text-red-400"
-                        }`}>
-                          <p className="font-medium mb-1">
-                            {testResult.success ? `Success (${testResult.statusCode})` : `Failed${testResult.statusCode ? ` (${testResult.statusCode})` : ""}`}
-                          </p>
-                          {testResult.schemaHints && (
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Schema: {JSON.stringify(testResult.schemaHints).slice(0, 200)}...
-                            </p>
-                          )}
-                          {testResult.error && (
-                            <p className="text-[10px]">{testResult.error}</p>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleTestUrl}
-                          disabled={!customUrl.trim() || isTesting}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs text-slate-300 hover:bg-white/[0.06] disabled:opacity-50 transition-all"
-                        >
-                          {isTesting ? (
-                            <div className="animate-spin w-3 h-3 border border-slate-500 border-t-transparent rounded-full" />
-                          ) : null}
-                          Test
-                        </button>
-                        <button
-                          onClick={handleSaveCustomWebhook}
-                          disabled={!customUrl.trim() || !customName.trim()}
-                          className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white disabled:opacity-50 transition-all"
-                        >
-                          Save & Add
-                        </button>
+                        {customAuthToken && (
+                          <button
+                            onClick={handleAutoDiscover}
+                            disabled={isDiscovering}
+                            className="w-full px-3 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs font-medium text-indigo-400 hover:bg-indigo-500/15 transition-all"
+                          >
+                            Retry with token
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    )}
+
+                    {/* Auto-save button after successful discovery */}
+                    {discoveryResult?.success && (
+                      <button
+                        onClick={handleAutoSaveWebhook}
+                        className="w-full px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white transition-all"
+                      >
+                        Add as Data Source
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ═══ BUILDING STEP: Status Feed ═══ */}
+          {step === "building" && (
+            <div className="p-6 flex flex-col items-center justify-center min-h-[300px] space-y-6">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center">
+                <div className="animate-spin w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full" />
+              </div>
+              <div className="space-y-2 w-full max-w-sm">
+                {statusMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-2 text-xs transition-all ${
+                      i === statusMessages.length - 1
+                        ? "text-indigo-400"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    {i < statusMessages.length - 1 ? (
+                      <span className="text-emerald-400"><CheckCircleIcon /></span>
+                    ) : (
+                      <div className="w-5 h-5 flex items-center justify-center">
+                        <div className="animate-spin w-3 h-3 border border-indigo-500 border-t-transparent rounded-full" />
+                      </div>
+                    )}
+                    {msg}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
         {/* ── Footer ──────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-white/[0.06]">
-          <button
-            onClick={step === "describe" ? onCancel : () => setStep("describe")}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all"
-          >
-            <ArrowLeftIcon />
-            {step === "describe" ? "Cancel" : "Back"}
-          </button>
-
-          {step === "describe" ? (
+        {step !== "building" && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/[0.06]">
             <button
-              onClick={handleDescribeNext}
-              disabled={!description.trim()}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-medium transition-all"
+              onClick={step === "describe" ? onCancel : () => setStep("describe")}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all"
             >
-              Next <ArrowRightIcon />
+              <ArrowLeftIcon />
+              {step === "describe" ? "Cancel" : "Back"}
             </button>
-          ) : step === "connect" ? (
-            <div className="flex items-center gap-2">
+
+            {step === "describe" ? (
               <button
-                onClick={handleFinish}
-                disabled={false}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all"
+                onClick={handleDescribeNext}
+                disabled={!description.trim()}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-medium transition-all"
               >
-                <SparkleIcon />
-                {selectedSources.length > 0 ? "Build with Data" : "Build without Data"}
+                Next <ArrowRightIcon />
               </button>
-            </div>
-          ) : null}
-        </div>
+            ) : step === "connect" ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleFinish}
+                  disabled={isBuilding}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all disabled:opacity-50"
+                >
+                  <SparkleIcon />
+                  {selectedSources.length > 0 ? "Build with Data" : "Build without Data"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );

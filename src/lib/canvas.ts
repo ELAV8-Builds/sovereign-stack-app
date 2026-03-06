@@ -93,10 +93,45 @@ export async function refreshCanvasData(id: string): Promise<{
   return res.json();
 }
 
+// ── Vault Status ──────────────────────────────────────────────────────
+
+export interface VaultKeyStatus {
+  id: string;
+  name: string;
+  category: string;
+  configured: boolean;
+}
+
+export async function getVaultStatus(): Promise<VaultKeyStatus[]> {
+  try {
+    const res = await fetch(`${API_BASE}/settings/vault/registry`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.keys || []).map((k: any) => ({
+      id: k.id,
+      name: k.name,
+      category: k.category,
+      configured: k.configured,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ── Streaming Generate ─────────────────────────────────────────────────
+
+export interface IntegrationStatusEvent {
+  type: 'integration_status';
+  service: string;
+  status: 'missing_key' | 'connected' | 'nango_available';
+  message: string;
+  keyId?: string;
+  nangoIntegration?: string;
+}
 
 export interface GenerateCallbacks {
   onElement: (element: object) => void;
+  onIntegrationStatus?: (event: IntegrationStatusEvent) => void;
   onError?: (error: string) => void;
   onComplete?: () => void;
 }
@@ -164,6 +199,8 @@ export function generateCanvasUI(
               const element = JSON.parse(data);
               if (element.error) {
                 callbacks.onError?.(element.error);
+              } else if (element.type === 'integration_status') {
+                callbacks.onIntegrationStatus?.(element as IntegrationStatusEvent);
               } else {
                 callbacks.onElement(element);
               }
