@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 import { safeInvoke, localGet, localSet } from "@/lib/tauri";
 import { chatWithAI, checkLLMHealth } from "@/lib/ai";
 import { chatWithAgent, type AgentToolCall } from "@/lib/agent";
@@ -13,6 +16,10 @@ import { ToolCallBlock } from "./ToolCallBlock";
 import { FleetPanel } from "./FleetPanel";
 import { VoiceMicButton, SpeakButton } from "./VoiceControls";
 import { RichMessageBlock, parseRichContent } from "./RichMessageBlock";
+import { InlineImage } from "./InlineImage";
+import { JsonBlock } from "./JsonBlock";
+import { markConversationRead } from "@/lib/unread";
+import { playNotificationDing } from "@/lib/notifications";
 import type { FleetAgent } from "@/lib/fleet";
 import toast from "react-hot-toast";
 
@@ -194,6 +201,8 @@ export function ChatInterface() {
         setActiveConversationId(id);
         setMessagesMap((prev) => ({ ...prev, [id]: conv.messages.map(apiToLocal) }));
         setApiAvailable(true);
+        // Mark as read when loading conversation
+        markConversationRead(id);
       } catch {
         setApiAvailable(false);
         toast.error("Could not load conversation — API may be offline");
@@ -242,6 +251,8 @@ export function ChatInterface() {
           if (conv && conv.messages) {
             setMessagesMap((prev) => ({ ...prev, [agent.conversation_id!]: conv.messages.map(apiToLocal) }));
           }
+          // Mark as read
+          markConversationRead(agent.conversation_id);
         } catch {
           // Conversation might not have messages yet
         }
@@ -260,6 +271,8 @@ export function ChatInterface() {
       setMessagesMap((prev) => ({ ...prev, [conv.id]: [] }));
       setApiAvailable(true);
       userScrolledUpRef.current = false;
+      // Mark new conversation as read immediately
+      markConversationRead(conv.id);
       return conv;
     } catch {
       setActiveConversationId(null);
@@ -374,6 +387,9 @@ export function ChatInterface() {
             if (convId && apiAvailable !== false) {
               addMessage(convId, "agent", text).catch(() => {});
             }
+
+            // Play notification ding — the agent just finished responding
+            playNotificationDing();
           },
           onError: (error) => {
             toast.error(`Agent error: ${error}`, { duration: 5000 });
@@ -479,6 +495,11 @@ export function ChatInterface() {
       addMessage(convId, "user", trimmed).catch(() => {});
     }
 
+    // Mark conversation as read since user is actively interacting
+    if (convId) {
+      markConversationRead(convId);
+    }
+
     try {
       if (agentMode) {
         await handleSendAgent(trimmed, convId);
@@ -517,7 +538,7 @@ export function ChatInterface() {
         const errorMsg: ChatMessage = {
           id: `error-${Date.now()}`,
           role: "agent",
-          content: `I can't respond right now — the AI backend isn't reachable.\n\nTo fix this:\n1. Make sure Docker Desktop is running\n2. Check that the Sovereign Stack is started: \`docker compose up -d\`\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\n\nI'll automatically retry when the backend comes back online. You can also click "Retry Connection" below.`,
+          content: `I can't respond right now — the AI backend isn't reachable.\\n\\nTo fix this:\\n1. Make sure Docker Desktop is running\\n2. Check that the Sovereign Stack is started: \\`docker compose up -d\\`\\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\\n\\nI'll automatically retry when the backend comes back online. You can also click \"Retry Connection\" below.`,
           timestamp: new Date(),
           status: "error",
         };
@@ -563,36 +584,7 @@ export function ChatInterface() {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // ── Render code blocks ────────────────────────────────────────────────
-
-  const renderCodeBlocks = (content: string) => {
-    const parts = content.split(/(```[\s\S]*?```)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith("```") && part.endsWith("```")) {
-        const code = part.slice(3, -3);
-        const firstLine = code.indexOf("\n");
-        const lang = firstLine > 0 ? code.slice(0, firstLine).trim() : "";
-        const codeBody = lang ? code.slice(firstLine + 1) : code;
-        return (
-          <div key={i} className="my-3 rounded-lg overflow-hidden">
-            {lang && (
-              <div className="bg-slate-900 px-3 py-1 text-xs text-slate-400 font-mono border-b border-slate-700">
-                {lang}
-              </div>
-            )}
-            <pre className="bg-slate-900/80 p-3 text-sm font-mono text-green-300 overflow-x-auto whitespace-pre-wrap">
-              {codeBody}
-            </pre>
-          </div>
-        );
-      }
-      return (
-        <span key={i} className="whitespace-pre-wrap">
-          {part}
-        </span>
-      );
-    });
-  };
+  // ── Enhanced content rendering ───────────────────────────────────────
 
   const renderContent = (content: string) => {
     // Check for :::canvas blocks (rich visual content)
@@ -602,10 +594,118 @@ export function ChatInterface() {
         if (segment.type === "canvas") {
           return <RichMessageBlock key={`canvas-${i}`} jsonlContent={segment.content} />;
         }
-        return <span key={`text-${i}`}>{renderCodeBlocks(segment.content)}</span>;
+        return <span key={`text-${i}`}>{renderMarkdown(segment.content)}</span>;
       });
     }
-    return renderCodeBlocks(content);
+    return renderMarkdown(content);
+  };
+
+  const renderMarkdown = (content: string) => {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
+          // Inline images
+          img: ({ src, alt }) => {
+            if (!src) return null;
+            return <InlineImage src={src} alt={alt} />;
+          },
+          // Code blocks with language label
+          code: ({ node, inline, className, children, ...props }) => {
+            const match = /language-(\w+)/.exec(className || "");
+            const lang = match ? match[1] : "";
+            
+            // Check if it's JSON and render with JsonBlock
+            if (lang === "json" && !inline) {
+              try {
+                const jsonData = JSON.parse(String(children));
+                return <JsonBlock data={jsonData} />;
+              } catch {
+                // Fall through to regular code block if JSON parsing fails
+              }
+            }
+
+            if (!inline && lang) {
+              return (
+                <div className="my-3 rounded-lg overflow-hidden">
+                  <div className="bg-slate-900 px-3 py-1 text-xs text-slate-400 font-mono border-b border-slate-700">
+                    {lang}
+                  </div>
+                  <pre className="bg-slate-900/80 p-3 text-sm font-mono text-green-300 overflow-x-auto">
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  </pre>
+                </div>
+              );
+            }
+            
+            return inline ? (
+              <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono text-blue-300" {...props}>
+                {children}
+              </code>
+            ) : (
+              <pre className="bg-slate-900/80 p-3 text-sm font-mono text-green-300 overflow-x-auto rounded-lg my-3">
+                <code {...props}>{children}</code>
+              </pre>
+            );
+          },
+          // Tables
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto">
+              <table className="min-w-full border border-slate-700 rounded-lg overflow-hidden">
+                {children}
+              </table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead className="bg-slate-800 border-b border-slate-700">{children}</thead>
+          ),
+          th: ({ children }) => (
+            <th className="px-3 py-2 text-left text-xs font-semibold text-slate-300 border-r border-slate-700 last:border-r-0">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="px-3 py-2 text-xs text-slate-400 border-r border-slate-700 border-b border-slate-800 last:border-r-0">
+              {children}
+            </td>
+          ),
+          // Links
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline transition-colors"
+            >
+              {children}
+            </a>
+          ),
+          // Bold
+          strong: ({ children }) => (
+            <strong className="font-semibold text-white">{children}</strong>
+          ),
+          // Italic
+          em: ({ children }) => (
+            <em className="italic text-slate-300">{children}</em>
+          ),
+          // Lists
+          ul: ({ children }) => (
+            <ul className="list-disc list-inside space-y-1 my-2">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="list-decimal list-inside space-y-1 my-2">{children}</ol>
+          ),
+          li: ({ children }) => (
+            <li className="text-sm text-slate-300">{children}</li>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
   };
 
   // ── Messages to display (include welcome if empty) ────────────────────
@@ -628,6 +728,8 @@ export function ChatInterface() {
           }
           loadConversation(id);
           userScrolledUpRef.current = false;
+
+          markConversationRead(id);
         }}
         onNewConversation={async (agentId) => {
           if (!agentId) {
@@ -829,7 +931,7 @@ export function ChatInterface() {
                 )}
 
                 {/* Main content */}
-                <div className="text-sm leading-relaxed text-slate-100">
+                <div className="text-sm leading-relaxed text-slate-100 prose prose-invert prose-sm max-w-none">
                   {renderContent(msg.content)}
                 </div>
                 <div
