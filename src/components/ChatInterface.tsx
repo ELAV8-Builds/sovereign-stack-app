@@ -52,9 +52,9 @@ function apiToLocal(msg: Message): ChatMessage {
 export function ChatInterface() {
   const agentName = localGet("agent_name", "Sovereign Agent");
   const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesMap, setMessagesMap] = useState<Record<string, ChatMessage[]>>({});
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isTypingMap, setIsTypingMap] = useState<Record<string, boolean>>({});
   const [channels, setChannels] = useState<ChannelStatus>({
     whatsapp: false,
     slack: false,
@@ -96,6 +96,8 @@ export function ChatInterface() {
   const agentToolCalls = agentToolCallsMap[convKey] ?? [];
   const agentThinking = agentThinkingMap[convKey] ?? "";
   const anyAgentRunning = Object.values(agentRunningMap).some(Boolean);
+  const messages = messagesMap[convKey] ?? [];
+  const isTyping = isTypingMap[convKey] ?? false;
 
   // ── Welcome message ───────────────────────────────────────────────────
 
@@ -190,7 +192,7 @@ export function ChatInterface() {
       try {
         const conv = await getConversation(id);
         setActiveConversationId(id);
-        setMessages(conv.messages.map(apiToLocal));
+        setMessagesMap((prev) => ({ ...prev, [id]: conv.messages.map(apiToLocal) }));
         setApiAvailable(true);
       } catch {
         setApiAvailable(false);
@@ -224,10 +226,7 @@ export function ChatInterface() {
   const handleSelectFleetAgent = useCallback(
     async (agent: FleetAgent | null) => {
       if (agent === null) {
-        // Switch back to main agent
         setActiveFleetAgent(null);
-        setMessages([]);
-        // Restore the main conversation
         const mainConvId = localGet<string | null>("active_conversation_id", null);
         if (mainConvId) {
           loadConversation(mainConvId);
@@ -236,17 +235,15 @@ export function ChatInterface() {
       }
 
       setActiveFleetAgent(agent);
-      setMessages([]);
 
-      // Load fleet agent's conversation
       if (agent.conversation_id) {
         try {
           const conv = await getConversation(agent.conversation_id);
           if (conv && conv.messages) {
-            setMessages(conv.messages.map(apiToLocal));
+            setMessagesMap((prev) => ({ ...prev, [agent.conversation_id!]: conv.messages.map(apiToLocal) }));
           }
         } catch {
-          // Conversation might not have messages yet — that's fine
+          // Conversation might not have messages yet
         }
       }
     },
@@ -260,13 +257,12 @@ export function ChatInterface() {
     try {
       const conv = await createConversation(undefined, agentId || undefined);
       setActiveConversationId(conv.id);
-      setMessages([]);
+      setMessagesMap((prev) => ({ ...prev, [conv.id]: [] }));
       setApiAvailable(true);
       userScrolledUpRef.current = false;
       return conv;
     } catch {
       setActiveConversationId(null);
-      setMessages([]);
       setApiAvailable(false);
       return null;
     }
@@ -290,7 +286,7 @@ export function ChatInterface() {
       delete abortControllerMapRef.current[key];
     }
     setAgentRunningMap((prev) => ({ ...prev, [key]: false }));
-    setIsTyping(false);
+    setIsTypingMap((prev) => ({ ...prev, [key]: false }));
   };
 
   // ── Send message (Agent Mode) ─────────────────────────────────────────
@@ -368,11 +364,11 @@ export function ChatInterface() {
               thinking: thinkingText || undefined,
             };
 
-            setIsTyping(false);
+            setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
             setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
             setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [] }));
             setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: "" }));
-            setMessages((prev) => [...prev, agentMsg]);
+            setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), agentMsg] }));
             delete abortControllerMapRef.current[sendKey];
 
             if (convId && apiAvailable !== false) {
@@ -384,7 +380,7 @@ export function ChatInterface() {
           },
           onDone: () => {
             setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
-            setIsTyping(false);
+            setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
             delete abortControllerMapRef.current[sendKey];
           },
         },
@@ -411,6 +407,7 @@ export function ChatInterface() {
   // ── Send message (Chat Mode — original behavior) ──────────────────────
 
   const handleSendChat = async (trimmed: string, convId: string | null) => {
+    const sendKey = activeFleetAgent?.conversation_id ?? convId ?? "__none__";
     const history = messages
       .filter((m) => m.id !== "welcome")
       .slice(-20)
@@ -429,8 +426,8 @@ export function ChatInterface() {
       status: "sent",
     };
 
-    setIsTyping(false);
-    setMessages((prev) => [...prev, agentMsg]);
+    setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
+    setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), agentMsg] }));
 
     if (convId && apiAvailable !== false) {
       addMessage(convId, "agent", response).catch(() => {});
@@ -468,9 +465,10 @@ export function ChatInterface() {
       status: "sent",
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const sendKey = activeFleetAgent?.conversation_id ?? convId ?? "__none__";
+    setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), userMsg] }));
     setInput("");
-    setIsTyping(true);
+    setIsTypingMap((prev) => ({ ...prev, [sendKey]: true }));
 
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -488,8 +486,8 @@ export function ChatInterface() {
         await handleSendChat(trimmed, convId);
       }
     } catch (err) {
-      setIsTyping(false);
-      setAgentRunningMap((prev) => ({ ...prev, [convKey]: false }));
+      setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
+      setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
 
       // Fallback to Tauri backend
       try {
@@ -503,7 +501,7 @@ export function ChatInterface() {
           timestamp: new Date(),
           status: "sent",
         };
-        setMessages((prev) => [...prev, agentMsg]);
+        setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), agentMsg] }));
         if (convId && apiAvailable !== false) {
           addMessage(convId, "agent", tauriResponse).catch(() => {});
         }
@@ -523,12 +521,11 @@ export function ChatInterface() {
           timestamp: new Date(),
           status: "error",
         };
-        setMessages((prev) => [...prev, errorMsg]);
+        setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), errorMsg] }));
         toast.error("AI not connected — will auto-retry in 15 seconds", {
           duration: 5000,
         });
       } else {
-        // Backend recovered between the failed call and our re-check — retry the send
         toast("Backend reconnected — retrying your message...", { icon: "🔄" });
         try {
           if (agentMode) {
@@ -544,7 +541,7 @@ export function ChatInterface() {
             timestamp: new Date(),
             status: "error",
           };
-          setMessages((prev) => [...prev, errorMsg]);
+          setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), errorMsg] }));
           toast.error("Request failed — please try again");
         }
       }
