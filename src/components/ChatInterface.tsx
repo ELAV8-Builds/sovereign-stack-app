@@ -12,6 +12,7 @@ import { ConversationSidebar } from "./ConversationSidebar";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { FleetPanel } from "./FleetPanel";
 import { VoiceMicButton, SpeakButton } from "./VoiceControls";
+import { RichMessageBlock, parseRichContent } from "./RichMessageBlock";
 import type { FleetAgent } from "@/lib/fleet";
 import toast from "react-hot-toast";
 
@@ -71,6 +72,7 @@ export function ChatInterface() {
   const [agentIteration, setAgentIteration] = useState(0);
   const [agentToolCalls, setAgentToolCalls] = useState<AgentToolCall[]>([]);
   const [agentThinking, setAgentThinking] = useState("");
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
 
@@ -554,7 +556,7 @@ export function ChatInterface() {
 
   // ── Render code blocks ────────────────────────────────────────────────
 
-  const renderContent = (content: string) => {
+  const renderCodeBlocks = (content: string) => {
     const parts = content.split(/(```[\s\S]*?```)/g);
     return parts.map((part, i) => {
       if (part.startsWith("```") && part.endsWith("```")) {
@@ -581,6 +583,20 @@ export function ChatInterface() {
         </span>
       );
     });
+  };
+
+  const renderContent = (content: string) => {
+    // Check for :::canvas blocks (rich visual content)
+    if (content.includes(":::canvas")) {
+      const segments = parseRichContent(content);
+      return segments.map((segment, i) => {
+        if (segment.type === "canvas") {
+          return <RichMessageBlock key={`canvas-${i}`} jsonlContent={segment.content} />;
+        }
+        return <span key={`text-${i}`}>{renderCodeBlocks(segment.content)}</span>;
+      });
+    }
+    return renderCodeBlocks(content);
   };
 
   // ── Messages to display (include welcome if empty) ────────────────────
@@ -892,6 +908,60 @@ export function ChatInterface() {
                 style={{ minHeight: "44px", maxHeight: "150px" }}
               />
             </div>
+
+            {/* Create visual button (✨) */}
+            {!agentRunning && (
+              <div className="relative flex-shrink-0">
+                <button
+                  onClick={() => setShowCreateMenu(prev => !prev)}
+                  className="w-11 h-11 rounded-xl flex items-center justify-center bg-slate-800 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500/30 text-slate-400 hover:text-indigo-400 transition-all duration-200"
+                  title="Create visual content"
+                  aria-label="Create visual"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-4 h-4">
+                    <path d="M12 2L9 12l-7 3 7 3 3 10 3-10 7-3-7-3z" />
+                  </svg>
+                </button>
+
+                {showCreateMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowCreateMenu(false)} />
+                    <div className="absolute bottom-14 right-0 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50">
+                      <div className="px-3 py-2 border-b border-slate-700">
+                        <span className="text-xs font-semibold text-slate-400">Create Visual</span>
+                      </div>
+                      {[
+                        { icon: "📊", label: "Dashboard", prompt: "Create a dashboard showing " },
+                        { icon: "📈", label: "Chart / Metrics", prompt: "Build a visual with charts and metrics for " },
+                        { icon: "📋", label: "Report", prompt: "Generate a visual report about " },
+                        { icon: "🎨", label: "Mockup", prompt: "Design a UI mockup for " },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          onClick={() => {
+                            setInput(item.prompt);
+                            setShowCreateMenu(false);
+                            inputRef.current?.focus();
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] transition-colors text-left"
+                        >
+                          <span className="text-base">{item.icon}</span>
+                          <div>
+                            <span className="text-sm text-slate-200 block">{item.label}</span>
+                            <span className="text-[10px] text-slate-500">{item.prompt}...</span>
+                          </div>
+                        </button>
+                      ))}
+                      <div className="px-3 py-2 border-t border-slate-700">
+                        <span className="text-[10px] text-slate-500">
+                          Tip: Just describe what you want in chat — the agent can generate visuals inline
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Voice mic button */}
             {!agentRunning && (
