@@ -10,10 +10,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@rollup/rollup-linux-arm64-gnu": "^4.59.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "lightningcss-linux-arm64-gnu": "^1.31.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-hot-toast": "^2.6.0"

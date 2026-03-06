@@ -44,8 +44,8 @@ pub async fn get_services_status() -> Result<Vec<ServiceInfo>, String> {
     let services = vec![
         ServiceInfo {
             name: "NanoClaw".to_string(),
-            port: None,
-            status: if is_launchd_service_running("com.sovereign.nanoclaw") {
+            port: Some(18789),
+            status: if is_port_listening(18789) {
                 ServiceStatus::Running
             } else {
                 ServiceStatus::Stopped
