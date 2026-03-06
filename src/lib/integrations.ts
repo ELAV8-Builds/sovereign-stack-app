@@ -5,7 +5,7 @@
  * data source connections for Canvas pages.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3100';
+const API_BASE = '/api/sovereign';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ export type DataSource = NangoDataSource | WebhookDataSource;
 // ── API Methods ────────────────────────────────────────────────────────
 
 export async function getIntegrationStatus(): Promise<IntegrationStatus> {
-  const res = await fetch(`${API_BASE}/api/integrations/status`);
+  const res = await fetch(`${API_BASE}/integrations/status`);
   if (!res.ok) throw new Error(`Failed to get status: ${res.status}`);
   return res.json();
 }
@@ -108,7 +108,7 @@ export async function createConnectSession(options?: {
   organizationId?: string;
   allowedIntegrations?: string[];
 }): Promise<ConnectSession> {
-  const res = await fetch(`${API_BASE}/api/integrations/session`, {
+  const res = await fetch(`${API_BASE}/integrations/session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options || {}),
@@ -118,7 +118,7 @@ export async function createConnectSession(options?: {
 }
 
 export async function listAvailableIntegrations(): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/integrations/available`);
+  const res = await fetch(`${API_BASE}/integrations/available`);
   if (!res.ok) throw new Error(`Failed to list integrations: ${res.status}`);
   return res.json();
 }
@@ -127,13 +127,13 @@ export async function listConnections(): Promise<{
   connections: StoredConnection[];
   live: any;
 }> {
-  const res = await fetch(`${API_BASE}/api/integrations/connections`);
+  const res = await fetch(`${API_BASE}/integrations/connections`);
   if (!res.ok) throw new Error(`Failed to list connections: ${res.status}`);
   return res.json();
 }
 
 export async function deleteConnectionApi(integrationId: string, connectionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/integrations/connections/${integrationId}/${connectionId}`, {
+  const res = await fetch(`${API_BASE}/integrations/connections/${integrationId}/${connectionId}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`Failed to delete connection: ${res.status}`);
@@ -147,7 +147,7 @@ export async function proxyRequest(options: {
   params?: Record<string, string>;
   data?: unknown;
 }): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/integrations/proxy`, {
+  const res = await fetch(`${API_BASE}/integrations/proxy`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
@@ -159,7 +159,7 @@ export async function proxyRequest(options: {
 // ── Custom Webhooks ────────────────────────────────────────────────────
 
 export async function listWebhooks(): Promise<CustomWebhook[]> {
-  const res = await fetch(`${API_BASE}/api/integrations/webhooks`);
+  const res = await fetch(`${API_BASE}/integrations/webhooks`);
   if (!res.ok) throw new Error(`Failed to list webhooks: ${res.status}`);
   return res.json();
 }
@@ -173,7 +173,7 @@ export async function createWebhook(data: {
   authType?: 'none' | 'bearer' | 'api_key' | 'basic';
   authConfig?: Record<string, string>;
 }): Promise<CustomWebhook> {
-  const res = await fetch(`${API_BASE}/api/integrations/webhooks`, {
+  const res = await fetch(`${API_BASE}/integrations/webhooks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -183,14 +183,14 @@ export async function createWebhook(data: {
 }
 
 export async function deleteWebhook(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/integrations/webhooks/${id}`, {
+  const res = await fetch(`${API_BASE}/integrations/webhooks/${id}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`Failed to delete webhook: ${res.status}`);
 }
 
 export async function testWebhook(id: string): Promise<WebhookTestResult> {
-  const res = await fetch(`${API_BASE}/api/integrations/webhooks/${id}/test`, {
+  const res = await fetch(`${API_BASE}/integrations/webhooks/${id}/test`, {
     method: 'POST',
   });
   if (!res.ok) throw new Error(`Failed to test webhook: ${res.status}`);
@@ -198,7 +198,7 @@ export async function testWebhook(id: string): Promise<WebhookTestResult> {
 }
 
 export async function fetchWebhookData(id: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/integrations/webhooks/${id}/fetch`, {
+  const res = await fetch(`${API_BASE}/integrations/webhooks/${id}/fetch`, {
     method: 'POST',
   });
   if (!res.ok) throw new Error(`Failed to fetch webhook data: ${res.status}`);
@@ -213,7 +213,7 @@ export async function testUrl(options: {
   headers?: Record<string, string>;
   body?: unknown;
 }): Promise<UrlTestResult> {
-  const res = await fetch(`${API_BASE}/api/integrations/test-url`, {
+  const res = await fetch(`${API_BASE}/integrations/test-url`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
