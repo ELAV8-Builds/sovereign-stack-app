@@ -11,6 +11,7 @@ import {
 import { ConversationSidebar } from "./ConversationSidebar";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { FleetPanel } from "./FleetPanel";
+import { VoiceMicButton, SpeakButton } from "./VoiceControls";
 import type { FleetAgent } from "@/lib/fleet";
 import toast from "react-hot-toast";
 
@@ -800,11 +801,14 @@ export function ChatInterface() {
                   {renderContent(msg.content)}
                 </div>
                 <div
-                  className={`text-[10px] mt-2 ${
+                  className={`flex items-center gap-2 text-[10px] mt-2 ${
                     msg.role === "user" ? "text-blue-200" : "text-slate-500"
                   }`}
                 >
                   {formatTime(msg.timestamp)}
+                  {msg.role === "agent" && msg.content.length > 10 && (
+                    <SpeakButton text={msg.content} />
+                  )}
                 </div>
               </div>
             </div>
@@ -888,6 +892,17 @@ export function ChatInterface() {
                 style={{ minHeight: "44px", maxHeight: "150px" }}
               />
             </div>
+
+            {/* Voice mic button */}
+            {!agentRunning && (
+              <VoiceMicButton
+                onTranscription={(text) => {
+                  setInput((prev) => (prev ? prev + " " + text : text));
+                  inputRef.current?.focus();
+                }}
+                className="flex-shrink-0"
+              />
+            )}
 
             {/* Send or Stop button */}
             {agentRunning ? (
