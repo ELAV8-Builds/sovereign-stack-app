@@ -24,7 +24,7 @@ export async function listCanvasPages(): Promise<CanvasPage[]> {
 }
 
 export async function getCanvasPage(id: string): Promise<CanvasPage> {
-  const res = await fetch(`${API_BASE}/api/canvas/pages/${id}`);
+  const res = await fetch(`${API_BASE}/canvas/pages/${id}`);
   if (!res.ok) throw new Error(`Failed to get page: ${res.status}`);
   return res.json();
 }
@@ -48,7 +48,7 @@ export async function updateCanvasPage(
   id: string,
   data: Partial<Pick<CanvasPage, 'name' | 'icon' | 'spec' | 'state' | 'data_sources'>>
 ): Promise<CanvasPage> {
-  const res = await fetch(`${API_BASE}/api/canvas/pages/${id}`, {
+  const res = await fetch(`${API_BASE}/canvas/pages/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -58,19 +58,38 @@ export async function updateCanvasPage(
 }
 
 export async function deleteCanvasPage(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/canvas/pages/${id}`, {
+  const res = await fetch(`${API_BASE}/canvas/pages/${id}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`Failed to delete page: ${res.status}`);
 }
 
 export async function duplicateCanvasPage(id: string, name: string): Promise<CanvasPage> {
-  const res = await fetch(`${API_BASE}/api/canvas/pages/${id}/duplicate`, {
+  const res = await fetch(`${API_BASE}/canvas/pages/${id}/duplicate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error(`Failed to duplicate page: ${res.status}`);
+  return res.json();
+}
+
+// ── Data Refresh ──────────────────────────────────────────────────────
+
+export async function refreshCanvasData(id: string): Promise<{
+  data: Array<{
+    sourceId: string;
+    sourceName: string;
+    sourceType: string;
+    data: any;
+    error?: string;
+  }>;
+  summary: string;
+}> {
+  const res = await fetch(`${API_BASE}/canvas/pages/${id}/refresh`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to refresh data: ${res.status}`);
   return res.json();
 }
 
@@ -90,7 +109,7 @@ export interface GenerateCallbacks {
 export function generateCanvasUI(
   prompt: string,
   callbacks: GenerateCallbacks,
-  options?: { currentSpec?: object; pageId?: string }
+  options?: { currentSpec?: object; pageId?: string; dataSources?: object }
 ): () => void {
   const controller = new AbortController();
 
@@ -103,6 +122,7 @@ export function generateCanvasUI(
           prompt,
           currentSpec: options?.currentSpec,
           pageId: options?.pageId,
+          dataSources: options?.dataSources,
         }),
         signal: controller.signal,
       });

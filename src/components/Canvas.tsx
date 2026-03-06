@@ -16,6 +16,7 @@ import {
   deleteCanvasPage,
   duplicateCanvasPage,
   generateCanvasUI,
+  refreshCanvasData,
   type CanvasPage,
 } from "@/lib/canvas";
 import { DataConnectionWizard } from "./DataConnectionWizard";
@@ -60,6 +61,18 @@ const DownloadIcon = () => (
   </svg>
 );
 
+const RefreshIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3.5 h-3.5">
+    <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+  </svg>
+);
+
+const DataIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3.5 h-3.5">
+    <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+  </svg>
+);
+
 // ── Component ──────────────────────────────────────────────────────────
 
 export function Canvas() {
@@ -72,6 +85,7 @@ export function Canvas() {
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState("");
   const [showWizard, setShowWizard] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
   const elementsRef = useRef<SpecElement[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -165,9 +179,9 @@ export function Canvas() {
         enrichedPrompt += `\n\nData sources available: ${sourceDescriptions}. Design the UI to display this data effectively.`;
       }
 
-      // Auto-start generation with the enriched prompt
+      // Auto-start generation with the enriched prompt + pass data sources
       setPrompt(enrichedPrompt);
-      generateForPage(page, enrichedPrompt);
+      generateForPage(page, enrichedPrompt, result.dataSources);
     } catch {
       toast.error("Failed to create page");
     }
@@ -253,7 +267,7 @@ export function Canvas() {
     generateForPage(activePage, prompt.trim());
   };
 
-  const generateForPage = (page: CanvasPage, userPrompt: string) => {
+  const generateForPage = (page: CanvasPage, userPrompt: string, dataSources?: DataSourceConfig) => {
     setIsGenerating(true);
     elementsRef.current = [];
 
@@ -293,6 +307,7 @@ export function Canvas() {
       {
         currentSpec: activeSpec ? (activeSpec as any) : undefined,
         pageId: page.id,
+        dataSources: dataSources ? (dataSources as any) : undefined,
       }
     );
 
@@ -302,6 +317,28 @@ export function Canvas() {
   const handleStop = () => {
     abortRef.current?.();
     setIsGenerating(false);
+  };
+
+  // ── Refresh data + re-generate ──────────────────────────────────────
+  const handleRefreshData = async () => {
+    if (!activePage || isRefreshing || isGenerating) return;
+
+    setIsRefreshing(true);
+    try {
+      const result = await refreshCanvasData(activePage.id);
+      toast.success(`Refreshed ${result.data.filter((d: any) => !d.error).length} source(s)`);
+
+      // Auto-re-generate with refreshed data
+      const refreshPrompt = activeSpec
+        ? `Update this dashboard with the latest data. Keep the same layout and structure, but update all values with the fresh data.`
+        : `Build a dashboard using the connected data sources.`;
+
+      generateForPage(activePage, refreshPrompt);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to refresh data");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // ── Key handler for prompt ─────────────────────────────────────────
@@ -489,6 +526,21 @@ export function Canvas() {
                 )}
               </div>
               <div className="flex items-center gap-2">
+                {/* Data sources indicator + refresh */}
+                {activePage.data_sources && (activePage.data_sources as any)?.sources?.length > 0 && (
+                  <button
+                    onClick={handleRefreshData}
+                    disabled={isRefreshing || isGenerating}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+                    title="Refresh data from connected sources"
+                  >
+                    <span className={isRefreshing ? "animate-spin" : ""}>
+                      <RefreshIcon />
+                    </span>
+                    <DataIcon />
+                    <span>{(activePage.data_sources as any).sources.length} source{(activePage.data_sources as any).sources.length > 1 ? "s" : ""}</span>
+                  </button>
+                )}
                 {activeSpec && (
                   <button
                     onClick={() => {
