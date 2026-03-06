@@ -540,7 +540,7 @@ export function ChatInterface() {
         const errorMsg: ChatMessage = {
           id: `error-${Date.now()}`,
           role: "agent",
-          content: `I can't respond right now — the AI backend isn't reachable.\\n\\nTo fix this:\\n1. Make sure Docker Desktop is running\\n2. Check that the Sovereign Stack is started: \\`docker compose up -d\\`\\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\\n\\nI'll automatically retry when the backend comes back online. You can also click \"Retry Connection\" below.`,
+          content: `I can't respond right now — the AI backend isn't reachable.\n\nTo fix this:\n1. Make sure Docker Desktop is running\n2. Check that the Sovereign Stack is started: \`docker compose up -d\`\n3. Verify LiteLLM is healthy at http://127.0.0.1:4000/health/liveliness\n\nI'll automatically retry when the backend comes back online. You can also click "Retry Connection" below.`,
           timestamp: new Date(),
           status: "error",
         };
@@ -614,11 +614,11 @@ export function ChatInterface() {
             return <InlineImage src={src} alt={alt} />;
           },
           // Code blocks with language label
-          code: ({ node, inline, className, children, ...props }) => {
+          code: ({ node, className, children, ...props }: any) => {
             const match = /language-(\w+)/.exec(className || "");
             const lang = match ? match[1] : "";
+            const inline = !className;
             
-            // Check if it's JSON and render with JsonBlock
             if (lang === "json" && !inline) {
               try {
                 const jsonData = JSON.parse(String(children));

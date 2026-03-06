@@ -19,7 +19,7 @@ import {
   markConversationRead,
   getUnreadConversationIds,
 } from "@/lib/unread";
-import { playTaskCompleteChime, playNotificationDing } from "@/lib/notifications";
+import { playTaskCompleteChime } from "@/lib/notifications";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
