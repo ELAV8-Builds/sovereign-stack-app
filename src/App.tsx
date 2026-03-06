@@ -6,10 +6,11 @@ import { ChatInterface } from "./components/ChatInterface";
 import { UnifiedDashboard } from "./components/UnifiedDashboard";
 import { AgentActivityLog } from "./components/AgentActivityLog";
 import { OnboardingPopup } from "./components/OnboardingPopup";
+import { Skills } from "./components/Skills";
 import Settings from "./pages/Settings";
 import "./App.css";
 
-type Tab = "chat" | "dashboard" | "activity" | "settings";
+type Tab = "chat" | "dashboard" | "skills" | "activity" | "settings";
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>("chat");
@@ -46,6 +47,7 @@ function AppContent() {
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "chat", label: "Chat", icon: "💬" },
     { id: "dashboard", label: "Dashboard", icon: "📊" },
+    { id: "skills", label: "Skills", icon: "🧩" },
     { id: "activity", label: "Activity", icon: "📡" },
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
@@ -104,6 +106,7 @@ function AppContent() {
       <main className="flex-1 overflow-hidden">
         {activeTab === "chat" && <ChatInterface />}
         {activeTab === "dashboard" && <UnifiedDashboard />}
+        {activeTab === "skills" && <Skills />}
         {activeTab === "activity" && <AgentActivityLog />}
         {activeTab === "settings" && <Settings />}
       </main>

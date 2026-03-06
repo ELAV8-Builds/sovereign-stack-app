@@ -41,6 +41,12 @@ export default defineConfig(async () => ({
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api\/llm/, ""),
       },
+      // Proxy /api/sovereign/* to Sovereign Stack API (localhost:3100)
+      "/api/sovereign": {
+        target: "http://127.0.0.1:3100",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/sovereign/, "/api"),
+      },
     },
   },
 }));
