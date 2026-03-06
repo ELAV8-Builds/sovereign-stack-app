@@ -10,7 +10,7 @@
  * The wizard opens as a full-screen overlay from the Canvas component.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import Nango from "@nangohq/frontend";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   getIntegrationStatus,
   createConnectSession,
@@ -199,22 +199,46 @@ export function DataConnectionWizard({ onComplete, onCancel }: DataConnectionWiz
         allowedIntegrations: integrationId ? [integrationId] : undefined,
       });
 
-      const nango = new Nango({});
-      const connect = nango.openConnectUI({
-        onEvent: (event: any) => {
-          if (event.type === "close") {
-            setIsConnecting(false);
-            // Refresh connections after modal closes
-            loadIntegrationData();
-          } else if (event.type === "connect") {
-            toast.success("Connection established!");
-            setIsConnecting(false);
-            loadIntegrationData();
-          }
-        },
+      const connectUrl = new URL("https://connect.nango.dev");
+      connectUrl.searchParams.set("apiURL", "https://api.nango.dev");
+      if (session.token) {
+        connectUrl.searchParams.set("session_token", session.token);
+      }
+
+      // Open Nango Connect in the system browser (avoids popup blocking in Tauri WebView)
+      try {
+        await openUrl(connectUrl.toString());
+      } catch {
+        window.open(connectUrl.toString(), "_blank");
+      }
+
+      toast("Opened in your browser — complete the connection there, then come back.", {
+        icon: "🌐",
+        duration: 6000,
       });
 
-      connect.setSessionToken(session.token);
+      // Poll for new connections until the user comes back
+      const beforeCount = activeConnections.length;
+      const pollInterval = setInterval(async () => {
+        try {
+          const conns = await listConnections();
+          const newConns = conns.connections || [];
+          if (newConns.length > beforeCount) {
+            clearInterval(pollInterval);
+            setActiveConnections(newConns);
+            setIsConnecting(false);
+            toast.success("Connection established!");
+          }
+        } catch {
+          // API hiccup — keep polling
+        }
+      }, 3000);
+
+      // Stop polling after 5 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setIsConnecting(false);
+      }, 300_000);
     } catch (err: any) {
       toast.error(`Failed to connect: ${err.message}`);
       setIsConnecting(false);
