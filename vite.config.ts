@@ -46,6 +46,12 @@ export default defineConfig(async () => ({
         target: "http://127.0.0.1:3100",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api\/sovereign/, "/api"),
+        configure: (proxy) => {
+          proxy.on("proxyReq", (_proxyReq, _req, res) => {
+            // @ts-expect-error disable buffering for SSE
+            res.socket?.setNoDelay(true);
+          });
+        },
       },
     },
   },
