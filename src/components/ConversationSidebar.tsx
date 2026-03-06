@@ -324,7 +324,7 @@ export function ConversationSidebar({
         </button>
         <span className="text-xs font-medium text-slate-400">Conversations</span>
         <button
-          onClick={() => onNewConversation(null)}
+          onClick={() => onNewConversation(activeFleetAgentId)}
           className="w-7 h-7 rounded flex items-center justify-center text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 transition-all text-sm"
           title="New conversation"
         >
@@ -499,13 +499,22 @@ export function ConversationSidebar({
                       </div>
 
                       {/* Agent conversations (collapsible) */}
-                      {!isCollapsed && agentConvs.length > 0 && (
+                      {!isCollapsed && (
                         <div className="pl-6 pr-2 mt-0.5">
                           {agentConvs.map((conv) => (
                             <div key={conv.id} className="mb-0.5">
                               <ConvItem conv={conv} agentId={agent.id} />
                             </div>
                           ))}
+                          <button
+                            onClick={() => {
+                              onSelectFleetAgent(agent);
+                              onNewConversation(agent.id);
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[10px] text-blue-400/70 hover:text-blue-300 hover:bg-slate-800/50 transition-all"
+                          >
+                            + New conversation
+                          </button>
                         </div>
                       )}
                     </div>

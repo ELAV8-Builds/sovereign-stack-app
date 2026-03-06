@@ -262,12 +262,13 @@ export function ChatInterface() {
       setActiveConversationId(conv.id);
       setMessages([]);
       setApiAvailable(true);
-      // Reset scroll tracking on new conversation
       userScrolledUpRef.current = false;
+      return conv;
     } catch {
       setActiveConversationId(null);
       setMessages([]);
       setApiAvailable(false);
+      return null;
     }
   }, []);
 
@@ -631,11 +632,14 @@ export function ChatInterface() {
           loadConversation(id);
           userScrolledUpRef.current = false;
         }}
-        onNewConversation={(agentId) => {
+        onNewConversation={async (agentId) => {
           if (!agentId) {
             setActiveFleetAgent(null);
           }
-          handleNewConversation(agentId);
+          const conv = await handleNewConversation(agentId);
+          if (conv && agentId && activeFleetAgent) {
+            setActiveFleetAgent({ ...activeFleetAgent, conversation_id: conv.id });
+          }
         }}
         onSelectFleetAgent={handleSelectFleetAgent}
         activeFleetAgentId={activeFleetAgent?.id ?? null}
