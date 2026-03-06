@@ -248,8 +248,8 @@ export default function Settings() {
                     onClick={() => {
                       localSet("onboarding_complete", false);
                       localSet("stack_configured", false);
-                      toast.success("Reloading with setup wizard...");
-                      setTimeout(() => window.location.reload(), 800);
+                      toast.success("Opening setup wizard...");
+                      window.dispatchEvent(new Event("restart-onboarding"));
                     }}
                     className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm font-semibold text-white transition-all duration-200 active:scale-95"
                   >

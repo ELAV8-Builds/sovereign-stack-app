@@ -15,6 +15,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>("chat");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [forceRestart, setForceRestart] = useState(false);
 
   // Check if first launch — use localStorage (works in both Tauri and browser)
   useEffect(() => {
@@ -25,8 +26,21 @@ function AppContent() {
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
+    setForceRestart(false);
     localStorage.setItem("sovereign_onboarding_complete", "true");
   };
+
+  const handleRestartOnboarding = () => {
+    setForceRestart(true);
+    setShowOnboarding(true);
+  };
+
+  // Listen for restart-onboarding event from Settings
+  useEffect(() => {
+    const handler = () => handleRestartOnboarding();
+    window.addEventListener("restart-onboarding", handler);
+    return () => window.removeEventListener("restart-onboarding", handler);
+  }, []);
 
   // Tab config
   const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -48,7 +62,7 @@ function AppContent() {
     <div className="h-screen flex flex-col bg-slate-950 text-white overflow-hidden">
       {/* Onboarding popup */}
       {showOnboarding && (
-        <OnboardingPopup onComplete={handleOnboardingComplete} />
+        <OnboardingPopup onComplete={handleOnboardingComplete} forceRestart={forceRestart} />
       )}
 
       {/* Top navigation bar */}

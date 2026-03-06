@@ -34,6 +34,8 @@ interface SetupStepResult {
 
 interface OnboardingPopupProps {
   onComplete: () => void;
+  /** When true, always start from welcome step (used by Restart Onboarding) */
+  forceRestart?: boolean;
 }
 
 // ── Step index for progress dots ────────────────────────────────────
@@ -54,7 +56,7 @@ function getStepIndex(step: OnboardingStep): number {
 
 // ── Main Onboarding Component ───────────────────────────────────────
 
-export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
+export function OnboardingPopup({ onComplete, forceRestart }: OnboardingPopupProps) {
   const [step, setStep] = useState<OnboardingStep>("welcome");
   const [dockerStatus, setDockerStatus] = useState<DockerStatus | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -66,6 +68,19 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
   const [servicesStarted, setServicesStarted] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<"whatsapp" | "slack" | null>(null);
+  // Track the furthest step the user has reached (for clickable dots)
+  const [furthestStep, setFurthestStep] = useState(0);
+  // Whether stack health was confirmed (Docker + API running)
+  const [stackHealthy, setStackHealthy] = useState(false);
+
+  // ── Update furthest step tracker ─────────────────────────────────
+
+  useEffect(() => {
+    const idx = getStepIndex(step);
+    if (idx > furthestStep) {
+      setFurthestStep(idx);
+    }
+  }, [step, furthestStep]);
 
   // ── Check Docker on mount ───────────────────────────────────────
 
@@ -78,16 +93,23 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
       const status = await safeInvoke<DockerStatus>("check_docker_status");
       setDockerStatus(status);
 
-      // If Docker is ready and stack is already running, skip to channels
+      // Check if stack is already running
       if (status.docker_running && status.stack_cloned && status.env_configured) {
-        // Stack might already be running — check health
         try {
           const resp = await fetch("http://127.0.0.1:3100/health", {
             signal: AbortSignal.timeout(3000),
           });
           if (resp.ok) {
-            setStep("channels");
-            return;
+            setStackHealthy(true);
+            // If NOT a restart, auto-advance to channels
+            // If restart, stay on welcome so user can navigate manually
+            if (!forceRestart) {
+              setFurthestStep(3); // Mark up through channels as reachable
+              setStep("channels");
+              return;
+            }
+            // For restart: mark all steps as reachable but stay on welcome
+            setFurthestStep(3);
           }
         } catch {
           // Not running yet, continue with normal flow
@@ -185,6 +207,24 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
     }
   };
 
+  // ── Navigation helpers ────────────────────────────────────────────
+
+  const goToStep = (target: OnboardingStep) => {
+    // For launching step: only go there if we're actively launching or stack is healthy
+    if (target === "launching" && !isLaunching && !servicesStarted && !stackHealthy) {
+      return;
+    }
+    setStep(target);
+  };
+
+  const handleProgressDotClick = (index: number) => {
+    // Can only click dots for steps we've reached (or earlier)
+    if (index <= furthestStep) {
+      const target = STEP_ORDER[index];
+      goToStep(target);
+    }
+  };
+
   // ── Handlers ────────────────────────────────────────────────────
 
   const handleWelcomeNext = () => {
@@ -210,6 +250,7 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
   };
 
   const handleAllServicesReady = () => {
+    setStackHealthy(true);
     setStep("channels");
   };
 
@@ -235,17 +276,22 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
 
       {/* Modal */}
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-fadeIn max-h-[90vh] overflow-y-auto scrollbar-thin">
-        {/* Progress dots */}
+        {/* Progress dots — clickable for navigation */}
         <div className="flex items-center justify-center gap-2 pt-5 sticky top-0 bg-slate-900 z-10 pb-2">
-          {STEP_ORDER.map((_, i) => (
-            <div
+          {STEP_ORDER.map((stepName, i) => (
+            <button
               key={i}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
+              onClick={() => handleProgressDotClick(i)}
+              disabled={i > furthestStep}
+              title={i <= furthestStep ? `Go to: ${stepName.charAt(0).toUpperCase() + stepName.slice(1)}` : undefined}
+              className={`rounded-full transition-all duration-300 ${
                 i === currentStepIdx
-                  ? "w-6 bg-blue-500"
+                  ? "w-6 h-1.5 bg-blue-500"
                   : i < currentStepIdx
-                  ? "w-1.5 bg-blue-400"
-                  : "w-1.5 bg-slate-700"
+                  ? "w-1.5 h-1.5 bg-blue-400 hover:bg-blue-300 cursor-pointer"
+                  : i <= furthestStep
+                  ? "w-1.5 h-1.5 bg-slate-500 hover:bg-slate-400 cursor-pointer"
+                  : "w-1.5 h-1.5 bg-slate-700 cursor-default"
               }`}
             />
           ))}
@@ -296,7 +342,9 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
                     {dockerStatus.docker_running ? "✓" : "⚠"}
                   </span>
                   <span>
-                    {dockerStatus.docker_running
+                    {stackHealthy
+                      ? "Docker is running — stack is healthy ✓"
+                      : dockerStatus.docker_running
                       ? "Docker is running — ready to set up"
                       : dockerStatus.docker_installed
                       ? "Docker is installed but not running"
@@ -305,12 +353,23 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
                 </div>
               )}
 
-              <button
-                onClick={handleWelcomeNext}
-                className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-xl text-white font-semibold transition-all duration-200 shadow-lg shadow-blue-600/20 active:scale-[0.98]"
-              >
-                Get Started
-              </button>
+              <div className="flex gap-3">
+                {/* Skip ahead button when stack is already healthy */}
+                {stackHealthy && (
+                  <button
+                    onClick={() => setStep("channels")}
+                    className="px-4 py-2.5 text-sm text-slate-400 hover:text-white transition-colors"
+                  >
+                    Skip to Channels &rarr;
+                  </button>
+                )}
+                <button
+                  onClick={handleWelcomeNext}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-xl text-white font-semibold transition-all duration-200 shadow-lg shadow-blue-600/20 active:scale-[0.98]"
+                >
+                  {stackHealthy ? "Reconfigure" : "Get Started"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -486,6 +545,15 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
                 >
                   &larr; Back
                 </button>
+                {/* Skip to channels if stack is already healthy (restart scenario) */}
+                {stackHealthy && (
+                  <button
+                    onClick={() => setStep("channels")}
+                    className="px-4 py-2.5 text-sm text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    Skip &rarr;
+                  </button>
+                )}
                 <button
                   onClick={handleApiKeyNext}
                   disabled={!apiKey.trim()}
@@ -548,31 +616,40 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
                     )}
                   </div>
 
-                  {launchError && (
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setStep("api_key")}
-                        className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
-                      >
-                        &larr; Back
-                      </button>
+                  {/* Always show back button (and retry on error) */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setStep("api_key")}
+                      className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+                    >
+                      &larr; Back
+                    </button>
+                    {launchError && (
                       <button
                         onClick={runLaunchSequence}
                         className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-semibold text-sm transition-all active:scale-[0.98]"
                       >
                         Retry
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </>
               )}
 
-              {/* Service health monitoring + fun game */}
+              {/* Service health monitoring */}
               {servicesStarted && (
-                <SetupProgress
-                  isActive={true}
-                  onAllReady={handleAllServicesReady}
-                />
+                <>
+                  <SetupProgress
+                    isActive={true}
+                    onAllReady={handleAllServicesReady}
+                  />
+                  <button
+                    onClick={() => setStep("api_key")}
+                    className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+                  >
+                    &larr; Back to API Keys
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -628,12 +705,20 @@ export function OnboardingPopup({ onComplete }: OnboardingPopupProps) {
                 </button>
               </div>
 
-              <button
-                onClick={handleFinish}
-                className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-xl text-white font-semibold transition-all duration-200 shadow-lg shadow-blue-600/20 active:scale-[0.98]"
-              >
-                Start Chatting &rarr;
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep("welcome")}
+                  className="px-4 py-2.5 text-sm text-slate-400 hover:text-white transition-colors"
+                >
+                  &larr; Back
+                </button>
+                <button
+                  onClick={handleFinish}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-xl text-white font-semibold transition-all duration-200 shadow-lg shadow-blue-600/20 active:scale-[0.98]"
+                >
+                  Start Chatting &rarr;
+                </button>
+              </div>
 
               <button
                 onClick={handleFinish}
