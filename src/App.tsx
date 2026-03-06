@@ -4,13 +4,12 @@ import { Toaster } from "react-hot-toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ChatInterface } from "./components/ChatInterface";
 import { UnifiedDashboard } from "./components/UnifiedDashboard";
-import { AgentActivityLog } from "./components/AgentActivityLog";
 import { OnboardingPopup } from "./components/OnboardingPopup";
 import { Skills } from "./components/Skills";
 import Settings from "./pages/Settings";
 import "./App.css";
 
-type Tab = "chat" | "dashboard" | "skills" | "activity" | "settings";
+type Tab = "chat" | "dashboard" | "skills" | "settings";
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>("chat");
@@ -48,7 +47,6 @@ function AppContent() {
     { id: "chat", label: "Chat", icon: "💬" },
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "skills", label: "Skills", icon: "🧩" },
-    { id: "activity", label: "Activity", icon: "📡" },
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
 
@@ -102,12 +100,13 @@ function AppContent() {
         </div>
       </nav>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-hidden">
-        {activeTab === "chat" && <ChatInterface />}
+      {/* Main content — ChatInterface stays mounted to preserve state */}
+      <main className="flex-1 overflow-hidden relative">
+        <div className={activeTab === "chat" ? "h-full" : "hidden"}>
+          <ChatInterface />
+        </div>
         {activeTab === "dashboard" && <UnifiedDashboard />}
         {activeTab === "skills" && <Skills />}
-        {activeTab === "activity" && <AgentActivityLog />}
         {activeTab === "settings" && <Settings />}
       </main>
     </div>
