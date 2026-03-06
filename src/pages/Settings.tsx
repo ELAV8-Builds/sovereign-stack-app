@@ -11,6 +11,7 @@ import { HealthCheck } from "../components/HealthCheck";
 import { BackupExport } from "../components/BackupExport";
 import { ModelConfiguration } from "../components/ModelConfiguration";
 import { CompoundCapture } from "../components/CompoundCapture";
+import { KnowledgeBase } from "../components/KnowledgeBase";
 import toast from "react-hot-toast";
 
 const API_BASE = "/api/sovereign";
@@ -36,6 +37,7 @@ interface VaultKey {
 type SettingsSection =
   | "communication"
   | "agent"
+  | "knowledge"
   | "system"
   | "security"
   | "advanced";
@@ -152,6 +154,7 @@ export default function Settings() {
   const sections: { id: SettingsSection; label: string; icon: string }[] = [
     { id: "communication", label: "Communication", icon: "💬" },
     { id: "agent", label: "Agent", icon: "🤖" },
+    { id: "knowledge", label: "Knowledge", icon: "📚" },
     { id: "system", label: "System", icon: "💻" },
     { id: "security", label: "Security", icon: "🔒" },
     { id: "advanced", label: "Advanced", icon: "⚡" },
@@ -217,6 +220,15 @@ export default function Settings() {
 
               <Section title="Compound Learning" icon="📚" description="Knowledge capture and memory">
                 <CompoundCapture />
+              </Section>
+            </div>
+          )}
+
+          {/* KNOWLEDGE */}
+          {activeSection === "knowledge" && (
+            <div className="space-y-6 animate-fadeIn">
+              <Section title="Knowledge Base" icon="📚" description="RAG-powered document search via AnythingLLM">
+                <KnowledgeBase />
               </Section>
             </div>
           )}
