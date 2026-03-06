@@ -73,10 +73,17 @@ export function ChatInterface() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
 
-  // Fleet Mode state
-  const [activeFleetAgent, setActiveFleetAgent] = useState<FleetAgent | null>(null);
+  // Fleet Mode state — persist selection to localStorage
+  const [activeFleetAgent, setActiveFleetAgent] = useState<FleetAgent | null>(() => {
+    try {
+      const stored = localStorage.getItem("sovereign_active_fleet_agent");
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Welcome message ───────────────────────────────────────────────────
@@ -111,10 +118,37 @@ export function ChatInterface() {
     return () => clearInterval(interval);
   }, [llmAvailable, recheckHealth]);
 
-  // ── Auto-scroll ───────────────────────────────────────────────────────
+  // ── Persist fleet agent selection ─────────────────────────────────────
+
+  useEffect(() => {
+    if (activeFleetAgent) {
+      localStorage.setItem("sovereign_active_fleet_agent", JSON.stringify(activeFleetAgent));
+    } else {
+      localStorage.removeItem("sovereign_active_fleet_agent");
+    }
+  }, [activeFleetAgent]);
+
+  // ── Smart auto-scroll (respects user scroll position) ───────────────
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUpRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, []);
+
+  // Track when user scrolls up — don't auto-scroll if they have
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // Consider "scrolled up" if more than 100px from bottom
+      userScrolledUpRef.current = (scrollHeight - scrollTop - clientHeight) > 100;
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
   useEffect(() => {
@@ -211,12 +245,14 @@ export function ChatInterface() {
 
   // ── Create new conversation ───────────────────────────────────────────
 
-  const handleNewConversation = useCallback(async () => {
+  const handleNewConversation = useCallback(async (agentId?: string | null) => {
     try {
-      const conv = await createConversation();
+      const conv = await createConversation(undefined, agentId || undefined);
       setActiveConversationId(conv.id);
       setMessages([]);
       setApiAvailable(true);
+      // Reset scroll tracking on new conversation
+      userScrolledUpRef.current = false;
     } catch {
       setActiveConversationId(null);
       setMessages([]);
@@ -554,34 +590,38 @@ export function ChatInterface() {
 
   return (
     <div className="flex h-full bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      {/* Sidebar: Conversations + Fleet Agents */}
-      <div className="flex flex-col h-full flex-shrink-0">
-        <div className="flex-1 min-h-0">
-          <ConversationSidebar
-            activeConversationId={activeFleetAgent ? null : activeConversationId}
-            onSelectConversation={(id) => {
-              setActiveFleetAgent(null);
-              loadConversation(id);
-            }}
-            onNewConversation={() => {
-              setActiveFleetAgent(null);
-              handleNewConversation();
-            }}
-            collapsed={sidebarCollapsed}
-            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          />
-        </div>
-        {!sidebarCollapsed && (
-          <div className="px-2 pb-2 flex-shrink-0">
-            <FleetPanel
-              activeAgentId={activeFleetAgent?.id ?? null}
-              onSelectAgent={handleSelectFleetAgent}
-              showLaunchDialog={showLaunchAgent}
-              onCloseLaunchDialog={() => setShowLaunchAgent(false)}
-            />
-          </div>
-        )}
-      </div>
+      {/* Sidebar: Conversations grouped by agent */}
+      <ConversationSidebar
+        activeConversationId={activeConversationId}
+        onSelectConversation={(id, agentId) => {
+          if (agentId) {
+            // Selecting a fleet agent conversation — update fleet agent too
+            // The activeFleetAgent will be updated by the sidebar's onSelectFleetAgent
+          } else {
+            setActiveFleetAgent(null);
+          }
+          loadConversation(id);
+          userScrolledUpRef.current = false;
+        }}
+        onNewConversation={(agentId) => {
+          if (!agentId) {
+            setActiveFleetAgent(null);
+          }
+          handleNewConversation(agentId);
+        }}
+        onSelectFleetAgent={handleSelectFleetAgent}
+        activeFleetAgentId={activeFleetAgent?.id ?? null}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onShowLaunchAgent={() => setShowLaunchAgent(true)}
+      />
+      {/* Fleet Launch Dialog (rendered by FleetPanel) */}
+      <FleetPanel
+        activeAgentId={activeFleetAgent?.id ?? null}
+        onSelectAgent={handleSelectFleetAgent}
+        showLaunchDialog={showLaunchAgent}
+        onCloseLaunchDialog={() => setShowLaunchAgent(false)}
+      />
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -706,7 +746,7 @@ export function ChatInterface() {
         )}
 
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 scrollbar-thin">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4 scrollbar-thin">
           {displayMessages.map((msg) => (
             <div
               key={msg.id}

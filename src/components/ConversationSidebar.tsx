@@ -8,13 +8,20 @@ import {
   type Conversation,
   type SearchResult,
 } from "@/lib/conversations";
+import {
+  getFleetAgents,
+  type FleetAgent,
+} from "@/lib/fleet";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
-  onSelectConversation: (id: string) => void;
-  onNewConversation: () => void;
+  onSelectConversation: (id: string, agentId?: string | null) => void;
+  onNewConversation: (agentId?: string | null) => void;
+  onSelectFleetAgent: (agent: FleetAgent | null) => void;
+  activeFleetAgentId: string | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  onShowLaunchAgent: () => void;
 }
 
 // ─── Time formatting ────────────────────────────────────────────────────
@@ -34,50 +41,20 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function groupByDate(conversations: Conversation[]): { label: string; items: Conversation[] }[] {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 86400000);
-  const weekAgo = new Date(today.getTime() - 7 * 86400000);
-
-  const pinned: Conversation[] = [];
-  const todayItems: Conversation[] = [];
-  const yesterdayItems: Conversation[] = [];
-  const thisWeekItems: Conversation[] = [];
-  const olderItems: Conversation[] = [];
-
-  for (const conv of conversations) {
-    if (conv.pinned) {
-      pinned.push(conv);
-      continue;
-    }
-    const updated = new Date(conv.updated_at);
-    if (updated >= today) todayItems.push(conv);
-    else if (updated >= yesterday) yesterdayItems.push(conv);
-    else if (updated >= weekAgo) thisWeekItems.push(conv);
-    else olderItems.push(conv);
-  }
-
-  const groups: { label: string; items: Conversation[] }[] = [];
-  if (pinned.length > 0) groups.push({ label: "📌 Pinned", items: pinned });
-  if (todayItems.length > 0) groups.push({ label: "Today", items: todayItems });
-  if (yesterdayItems.length > 0) groups.push({ label: "Yesterday", items: yesterdayItems });
-  if (thisWeekItems.length > 0) groups.push({ label: "This Week", items: thisWeekItems });
-  if (olderItems.length > 0) groups.push({ label: "Older", items: olderItems });
-
-  return groups;
-}
-
 // ─── Component ──────────────────────────────────────────────────────────
 
 export function ConversationSidebar({
   activeConversationId,
   onSelectConversation,
   onNewConversation,
+  onSelectFleetAgent,
+  activeFleetAgentId,
   collapsed,
   onToggleCollapse,
+  onShowLaunchAgent,
 }: ConversationSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [fleetAgents, setFleetAgents] = useState<FleetAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
@@ -85,15 +62,20 @@ export function ConversationSidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const editInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Load conversations ────────────────────────────────────────────────
+  // ── Load conversations + fleet agents ──────────────────────────────────
 
-  const loadConversations = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const convs = await listConversations({ limit: 100 });
+      const [convs, agents] = await Promise.all([
+        listConversations({ limit: 100 }),
+        getFleetAgents(),
+      ]);
       setConversations(convs);
+      setFleetAgents(agents);
     } catch {
       // API not available — silent fail
     } finally {
@@ -102,10 +84,10 @@ export function ConversationSidebar({
   }, []);
 
   useEffect(() => {
-    loadConversations();
-    const interval = setInterval(loadConversations, 10000);
+    loadData();
+    const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
-  }, [loadConversations]);
+  }, [loadData]);
 
   // ── Search with debounce ──────────────────────────────────────────────
 
@@ -162,7 +144,7 @@ export function ConversationSidebar({
     try {
       await updateConversation(id, { title: editTitle.trim() });
       setEditingId(null);
-      await loadConversations();
+      await loadData();
     } catch {
       toast.error("Failed to rename");
     }
@@ -171,7 +153,7 @@ export function ConversationSidebar({
   const handlePin = async (id: string, currentlyPinned: boolean) => {
     try {
       await updateConversation(id, { pinned: !currentlyPinned });
-      await loadConversations();
+      await loadData();
     } catch {
       toast.error("Failed to update");
     }
@@ -181,7 +163,7 @@ export function ConversationSidebar({
     try {
       await updateConversation(id, { archived: true });
       toast.success("Conversation archived");
-      await loadConversations();
+      await loadData();
     } catch {
       toast.error("Failed to archive");
     }
@@ -191,10 +173,19 @@ export function ConversationSidebar({
     try {
       await deleteConversation(id);
       toast.success("Conversation deleted");
-      await loadConversations();
+      await loadData();
     } catch {
       toast.error("Failed to delete");
     }
+  };
+
+  const toggleAgentCollapsed = (agentId: string) => {
+    setCollapsedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
   };
 
   // ── Collapsed mode ────────────────────────────────────────────────────
@@ -210,19 +201,113 @@ export function ConversationSidebar({
           ▸
         </button>
         <button
-          onClick={onNewConversation}
+          onClick={() => onNewConversation(null)}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 transition-all"
           title="New conversation"
         >
           +
         </button>
+        {/* Fleet agent icons */}
+        {fleetAgents.length > 0 && (
+          <div className="border-t border-slate-800 pt-2 mt-1 flex flex-col gap-1">
+            {fleetAgents.map(agent => (
+              <button
+                key={agent.id}
+                onClick={() => {
+                  onSelectFleetAgent(agent);
+                  if (agent.conversation_id) {
+                    onSelectConversation(agent.conversation_id, agent.id);
+                  }
+                }}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all ${
+                  activeFleetAgentId === agent.id
+                    ? "bg-blue-900/40 ring-1 ring-blue-700"
+                    : "hover:bg-slate-800"
+                }`}
+                title={agent.name}
+              >
+                {agent.icon}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
-  // ── Grouped conversations ─────────────────────────────────────────────
+  // ── Group conversations by agent ───────────────────────────────────────
 
-  const groups = groupByDate(conversations);
+  const mainConversations = conversations.filter(c => !c.agent_id);
+  const agentConversationMap = new Map<string, Conversation[]>();
+  for (const conv of conversations) {
+    if (conv.agent_id) {
+      const existing = agentConversationMap.get(conv.agent_id) || [];
+      existing.push(conv);
+      agentConversationMap.set(conv.agent_id, existing);
+    }
+  }
+
+  // ── Render a single conversation item ──────────────────────────────────
+
+  const ConvItem = ({ conv, agentId }: { conv: Conversation; agentId?: string | null }) => {
+    if (editingId === conv.id) {
+      return (
+        <div className="px-2.5 py-1.5">
+          <input
+            ref={editInputRef}
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleRename(conv.id);
+              if (e.key === "Escape") setEditingId(null);
+            }}
+            onBlur={() => handleRename(conv.id)}
+            className="w-full bg-slate-800 border border-blue-500/50 rounded px-2 py-1 text-[11px] text-white focus:outline-none"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <button
+        onClick={() => onSelectConversation(conv.id, agentId)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({ id: conv.id, x: e.clientX, y: e.clientY });
+        }}
+        className={`w-full text-left px-2.5 py-2 rounded-lg transition-all duration-150 group ${
+          activeConversationId === conv.id
+            ? "bg-slate-800 border border-slate-700/50"
+            : "hover:bg-slate-800/50"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <span
+            className={`text-[11px] font-medium truncate flex-1 ${
+              activeConversationId === conv.id
+                ? "text-white"
+                : "text-slate-300"
+            }`}
+          >
+            {conv.pinned && "📌 "}
+            {conv.title}
+          </span>
+          <span className="text-[9px] text-slate-600 ml-2 flex-shrink-0">
+            {formatRelativeTime(conv.updated_at)}
+          </span>
+        </div>
+        {conv.last_message && (
+          <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+            {conv.last_message.slice(0, 60)}
+          </p>
+        )}
+        <span className="text-[9px] text-slate-600">
+          {conv.message_count} messages
+        </span>
+      </button>
+    );
+  };
 
   // ── Render ────────────────────────────────────────────────────────────
 
@@ -239,7 +324,7 @@ export function ConversationSidebar({
         </button>
         <span className="text-xs font-medium text-slate-400">Conversations</span>
         <button
-          onClick={onNewConversation}
+          onClick={() => onNewConversation(null)}
           className="w-7 h-7 rounded flex items-center justify-center text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 transition-all text-sm"
           title="New conversation"
         >
@@ -299,84 +384,148 @@ export function ConversationSidebar({
             <span className="animate-spin w-3 h-3 border border-slate-500 border-t-transparent rounded-full" />
             <span className="text-[10px] text-slate-500">Loading...</span>
           </div>
-        ) : conversations.length === 0 ? (
-          <div className="px-3 py-6 text-center">
-            <p className="text-[10px] text-slate-600">No conversations yet</p>
-            <button
-              onClick={onNewConversation}
-              className="mt-2 text-[10px] text-blue-400 hover:text-blue-300"
-            >
-              Start a conversation →
-            </button>
-          </div>
         ) : (
-          /* Grouped conversation list */
-          groups.map((group) => (
-            <div key={group.label} className="mb-1">
-              <div className="px-3 py-1.5">
-                <span className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider">
-                  {group.label}
-                </span>
+          <>
+            {/* ─── Main Agent Section ─────────────────────────── */}
+            <div className="mb-1">
+              <div className="flex items-center justify-between px-3 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">🤖</span>
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Main Agent
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    onSelectFleetAgent(null);
+                    onNewConversation(null);
+                  }}
+                  className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+                  title="New main conversation"
+                >
+                  + New
+                </button>
               </div>
-              {group.items.map((conv) => (
-                <div key={conv.id} className="px-2 mb-0.5 relative">
-                  {editingId === conv.id ? (
-                    <div className="px-2.5 py-1.5">
-                      <input
-                        ref={editInputRef}
-                        type="text"
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleRename(conv.id);
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        onBlur={() => handleRename(conv.id)}
-                        className="w-full bg-slate-800 border border-blue-500/50 rounded px-2 py-1 text-[11px] text-white focus:outline-none"
-                      />
+
+              {mainConversations.length === 0 ? (
+                <div className="px-3 py-2 text-center">
+                  <p className="text-[10px] text-slate-600">No conversations yet</p>
+                  <button
+                    onClick={() => onNewConversation(null)}
+                    className="mt-1 text-[10px] text-blue-400 hover:text-blue-300"
+                  >
+                    Start a conversation →
+                  </button>
+                </div>
+              ) : (
+                <div className="px-2">
+                  {mainConversations.slice(0, 10).map((conv) => (
+                    <div key={conv.id} className="mb-0.5">
+                      <ConvItem conv={conv} agentId={null} />
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => onSelectConversation(conv.id)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setContextMenu({ id: conv.id, x: e.clientX, y: e.clientY });
-                      }}
-                      className={`w-full text-left px-2.5 py-2 rounded-lg transition-all duration-150 group ${
-                        activeConversationId === conv.id
-                          ? "bg-slate-800 border border-slate-700/50"
-                          : "hover:bg-slate-800/50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span
-                          className={`text-[11px] font-medium truncate flex-1 ${
-                            activeConversationId === conv.id
-                              ? "text-white"
-                              : "text-slate-300"
-                          }`}
-                        >
-                          {conv.pinned && "📌 "}
-                          {conv.title}
-                        </span>
-                        <span className="text-[9px] text-slate-600 ml-2 flex-shrink-0">
-                          {formatRelativeTime(conv.updated_at)}
-                        </span>
-                      </div>
-                      {conv.last_message && (
-                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-                          {conv.last_message.slice(0, 60)}
-                        </p>
-                      )}
-                      <span className="text-[9px] text-slate-600">
-                        {conv.message_count} messages
-                      </span>
-                    </button>
+                  ))}
+                  {mainConversations.length > 10 && (
+                    <div className="text-[9px] text-slate-600 text-center py-1">
+                      +{mainConversations.length - 10} more
+                    </div>
                   )}
                 </div>
-              ))}
+              )}
             </div>
-          ))
+
+            {/* ─── Fleet Agent Sections ────────────────────────── */}
+            {fleetAgents.length > 0 && (
+              <div className="border-t border-slate-800 pt-1 mt-1">
+                <div className="flex items-center justify-between px-3 py-1.5">
+                  <span className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider">
+                    Fleet Agents
+                  </span>
+                  <button
+                    onClick={onShowLaunchAgent}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-0.5 transition-colors"
+                    title="Launch new agent"
+                  >
+                    + Agent
+                  </button>
+                </div>
+
+                {fleetAgents.map((agent) => {
+                  const agentConvs = agentConversationMap.get(agent.id) || [];
+                  const isActive = activeFleetAgentId === agent.id;
+                  const isCollapsed = collapsedAgents.has(agent.id);
+                  const isRunning = agent.status === 'running';
+
+                  return (
+                    <div key={agent.id} className="mb-0.5">
+                      {/* Agent header row */}
+                      <div
+                        className={`flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-lg cursor-pointer transition-all ${
+                          isActive
+                            ? "bg-blue-900/25 border border-blue-800/40"
+                            : "hover:bg-slate-800/50"
+                        }`}
+                      >
+                        <button
+                          onClick={() => toggleAgentCollapsed(agent.id)}
+                          className="text-[9px] text-slate-600 w-3 flex-shrink-0"
+                        >
+                          {isCollapsed ? "▸" : "▾"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            onSelectFleetAgent(agent);
+                            if (agent.conversation_id) {
+                              onSelectConversation(agent.conversation_id, agent.id);
+                            }
+                          }}
+                          className="flex-1 min-w-0 flex items-center gap-1.5"
+                        >
+                          <span className="text-sm flex-shrink-0">{agent.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] font-medium text-slate-300 truncate">
+                              {agent.name}
+                            </div>
+                            <div className="text-[9px] text-slate-600">
+                              {agent.model} · {agent.message_count || 0} msgs
+                            </div>
+                          </div>
+                        </button>
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                            isRunning ? "bg-green-400" : "bg-slate-600"
+                          }`}
+                          title={isRunning ? "Running" : "Stopped"}
+                        />
+                      </div>
+
+                      {/* Agent conversations (collapsible) */}
+                      {!isCollapsed && agentConvs.length > 0 && (
+                        <div className="pl-6 pr-2 mt-0.5">
+                          {agentConvs.map((conv) => (
+                            <div key={conv.id} className="mb-0.5">
+                              <ConvItem conv={conv} agentId={agent.id} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Launch first agent prompt */}
+            {fleetAgents.length === 0 && (
+              <div className="border-t border-slate-800 pt-2 mt-1 px-3">
+                <button
+                  onClick={onShowLaunchAgent}
+                  className="w-full text-center py-2 rounded-lg border border-dashed border-slate-700 text-[10px] text-slate-500 hover:text-blue-400 hover:border-blue-700 transition-all"
+                >
+                  🚀 Launch a Fleet Agent
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

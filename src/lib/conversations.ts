@@ -10,6 +10,7 @@
 export interface Conversation {
   id: string;
   title: string;
+  agent_id: string | null;
   created_at: string;
   updated_at: string;
   pinned: boolean;
@@ -72,11 +73,11 @@ export async function listConversations(options?: {
 /**
  * Create a new conversation.
  */
-export async function createConversation(title?: string): Promise<Conversation> {
+export async function createConversation(title?: string, agent_id?: string): Promise<Conversation> {
   const response = await fetch(`${API_BASE}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, agent_id }),
     signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw new Error(`Failed to create conversation: ${response.status}`);
