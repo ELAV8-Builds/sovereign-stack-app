@@ -18,6 +18,8 @@ import {
   generateCanvasUI,
   type CanvasPage,
 } from "@/lib/canvas";
+import { DataConnectionWizard } from "./DataConnectionWizard";
+import type { DataSourceConfig } from "@/lib/integrations";
 import toast from "react-hot-toast";
 
 // ── Icons ──────────────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ export function Canvas() {
   const [isLoading, setIsLoading] = useState(true);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState("");
+  const [showWizard, setShowWizard] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
   const elementsRef = useRef<SpecElement[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -107,16 +110,64 @@ export function Canvas() {
     setPrompt("");
   }, []);
 
-  // ── Create new page ────────────────────────────────────────────────
+  // ── Create new page (opens wizard) ─────────────────────────────────
 
-  const handleNewPage = async () => {
+  const handleNewPage = () => {
+    setShowWizard(true);
+  };
+
+  const handleQuickNewPage = async () => {
     try {
       const page = await createCanvasPage({ name: "Untitled Page" });
       setPages(prev => [page, ...prev]);
       selectPage(page);
-      // Auto-focus the prompt input
       setTimeout(() => inputRef.current?.focus(), 100);
       toast.success("New page created");
+    } catch {
+      toast.error("Failed to create page");
+    }
+  };
+
+  const handleWizardComplete = async (result: {
+    prompt: string;
+    dataSources: DataSourceConfig;
+    pageName: string;
+  }) => {
+    setShowWizard(false);
+
+    try {
+      // Create the page with data source config
+      const page = await createCanvasPage({
+        name: result.pageName,
+      });
+
+      // Save data sources to the page
+      if (result.dataSources.sources.length > 0) {
+        await updateCanvasPage(page.id, {
+          data_sources: result.dataSources as any,
+        });
+      }
+
+      setPages(prev => [page, ...prev]);
+      setActivePage(page);
+
+      // Build a context-enriched prompt that includes data source info
+      let enrichedPrompt = result.prompt;
+      if (result.dataSources.sources.length > 0) {
+        const sourceDescriptions = result.dataSources.sources
+          .map(s => {
+            if (s.type === "nango") return `Connected: ${s.displayName} (${s.integrationId})`;
+            if (s.type === "webhook") return `Custom API: ${s.displayName}`;
+            return "";
+          })
+          .filter(Boolean)
+          .join(", ");
+        enrichedPrompt += `\n\nData sources available: ${sourceDescriptions}. Design the UI to display this data effectively.`;
+      }
+
+      // Auto-start generation with the enriched prompt
+      setPrompt(enrichedPrompt);
+      generateForPage(page, enrichedPrompt);
     } catch {
       toast.error("Failed to create page");
     }
@@ -295,12 +346,20 @@ export function Canvas() {
           ))}
         </div>
 
-        <button
-          onClick={handleNewPage}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
-        >
-          <PlusIcon /> Create Blank Page
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleNewPage}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+          >
+            <SparkleIcon /> Create with Data
+          </button>
+          <button
+            onClick={handleQuickNewPage}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 text-sm font-medium transition-colors border border-white/[0.08]"
+          >
+            <PlusIcon /> Blank Page
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -308,7 +367,15 @@ export function Canvas() {
   // ── Render ─────────────────────────────────────────────────────────
 
   return (
-    <div className="h-full flex bg-slate-950">
+    <div className="h-full flex bg-slate-950 relative">
+      {/* ── Wizard Overlay ──────────────────────────────────────────── */}
+      {showWizard && (
+        <DataConnectionWizard
+          onComplete={handleWizardComplete}
+          onCancel={() => setShowWizard(false)}
+        />
+      )}
+
       {/* ── Page List Sidebar ───────────────────────────────────────── */}
       <div className="w-56 flex-shrink-0 border-r border-white/[0.06] flex flex-col">
         {/* Header */}
