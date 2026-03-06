@@ -10,6 +10,7 @@ import {
 } from "@/lib/conversations";
 import {
   getFleetAgents,
+  deleteFleetAgent,
   type FleetAgent,
 } from "@/lib/fleet";
 
@@ -63,6 +64,7 @@ export function ConversationSidebar({
   const [editTitle, setEditTitle] = useState("");
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
+  const [agentContextMenu, setAgentContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -134,6 +136,13 @@ export function ConversationSidebar({
     return () => window.removeEventListener("click", handler);
   }, [contextMenu]);
 
+  useEffect(() => {
+    if (!agentContextMenu) return;
+    const handler = () => setAgentContextMenu(null);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [agentContextMenu]);
+
   // ── Actions ───────────────────────────────────────────────────────────
 
   const handleRename = async (id: string) => {
@@ -186,6 +195,19 @@ export function ConversationSidebar({
       else next.add(agentId);
       return next;
     });
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    try {
+      await deleteFleetAgent(agentId);
+      toast.success("Agent deleted");
+      if (activeFleetAgentId === agentId) {
+        onSelectFleetAgent(null);
+      }
+      await loadData();
+    } catch {
+      toast.error("Failed to delete agent");
+    }
   };
 
   // ── Collapsed mode ────────────────────────────────────────────────────
@@ -459,6 +481,10 @@ export function ConversationSidebar({
                     <div key={agent.id} className="mb-0.5">
                       {/* Agent header row */}
                       <div
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setAgentContextMenu({ id: agent.id, x: e.clientX, y: e.clientY });
+                        }}
                         className={`flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-lg cursor-pointer transition-all ${
                           isActive
                             ? "bg-blue-900/25 border border-blue-800/40"
@@ -587,6 +613,44 @@ export function ConversationSidebar({
                   className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
                 >
                   🗑 Delete
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Agent context menu */}
+      {agentContextMenu && (
+        <div
+          className="fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[140px]"
+          style={{ left: agentContextMenu.x, top: agentContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {(() => {
+            const agent = fleetAgents.find((a) => a.id === agentContextMenu.id);
+            if (!agent) return null;
+            return (
+              <>
+                <button
+                  onClick={() => {
+                    onSelectFleetAgent(agent);
+                    onNewConversation(agent.id);
+                    setAgentContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700 transition-colors"
+                >
+                  💬 New Conversation
+                </button>
+                <div className="border-t border-slate-700 my-1" />
+                <button
+                  onClick={() => {
+                    handleDeleteAgent(agent.id);
+                    setAgentContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
+                >
+                  🗑 Delete Agent
                 </button>
               </>
             );
