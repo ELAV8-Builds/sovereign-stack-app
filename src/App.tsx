@@ -77,7 +77,7 @@ function AppContent() {
       {/* Top navigation bar — fully draggable except buttons */}
       <div
         data-tauri-drag-region
-        className="flex items-center pl-[80px] pr-3 h-12 border-b border-white/[0.06] bg-slate-950/70 backdrop-blur-xl flex-shrink-0 z-30"
+        className="titlebar flex items-center pl-[80px] pr-3 h-12 border-b border-white/[0.06] bg-slate-950/70 backdrop-blur-xl flex-shrink-0 z-30"
         style={{ borderTop: "1px solid rgba(99, 102, 241, 0.15)" }}
       >
         {/* Left: Logo + drag spacer */}

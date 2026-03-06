@@ -116,8 +116,20 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Titlebar drag region — enables window dragging on macOS overlay titlebar */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] [data-no-drag] {
+  -webkit-app-region: no-drag;
+}
+
 /* Subtle top accent glow */
-nav[data-tauri-drag-region] {
+[data-tauri-drag-region].titlebar {
   background: linear-gradient(
     180deg,
     rgba(99, 102, 241, 0.04) 0%,
