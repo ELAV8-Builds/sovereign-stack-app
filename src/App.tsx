@@ -42,12 +42,18 @@ function AppContent() {
     return () => window.removeEventListener("restart-onboarding", handler);
   }, []);
 
-  // Tab config
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "chat", label: "Chat", icon: "💬" },
-    { id: "dashboard", label: "Dashboard", icon: "📊" },
-    { id: "skills", label: "Skills", icon: "🧩" },
-    { id: "settings", label: "Settings", icon: "⚙️" },
+  const tabIcons: Record<Tab, React.ReactNode> = {
+    chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+    dashboard: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+    skills: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
+    settings: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+  };
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "chat", label: "Chat" },
+    { id: "dashboard", label: "Dashboard" },
+    { id: "skills", label: "Skills" },
+    { id: "settings", label: "Settings" },
   ];
 
   if (!onboardingChecked) {
@@ -65,38 +71,48 @@ function AppContent() {
         <OnboardingPopup onComplete={handleOnboardingComplete} forceRestart={forceRestart} />
       )}
 
-      {/* Top navigation bar */}
-      <nav className="flex items-center justify-between px-2 h-12 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm flex-shrink-0 z-30">
+      {/* Top navigation bar — extends under traffic lights */}
+      <nav
+        data-tauri-drag-region
+        className="flex items-center justify-between pl-[80px] pr-3 h-12 border-b border-white/[0.06] bg-slate-950/70 backdrop-blur-xl flex-shrink-0 z-30"
+        style={{ borderTop: "1px solid rgba(99, 102, 241, 0.15)" }}
+      >
         {/* Left: Logo */}
-        <div className="flex items-center gap-2 px-2">
-          <span className="text-sm font-bold tracking-tight text-slate-300">
-            SOVEREIGN
+        <div data-tauri-drag-region className="flex items-center gap-2.5">
+          <span className="text-sm font-bold tracking-widest text-white/80 uppercase">
+            Sovereign
           </span>
-          <span className="text-[10px] text-slate-600 font-mono">v0.4</span>
+          <span className="text-[9px] text-indigo-400/60 font-mono font-medium">v0.4</span>
         </div>
 
         {/* Center: Tabs */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-xl p-0.5">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-250 ${
                 activeTab === tab.id
-                  ? "bg-slate-800 text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+                  ? "bg-white/[0.08] text-white shadow-[0_0_12px_rgba(99,102,241,0.15)]"
+                  : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
               }`}
             >
-              <span className="text-sm">{tab.icon}</span>
+              <span className={activeTab === tab.id ? "text-indigo-400" : ""}>{tabIcons[tab.id]}</span>
               <span className="hidden sm:inline">{tab.label}</span>
+              {activeTab === tab.id && (
+                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-[2px] bg-indigo-500 rounded-full" />
+              )}
             </button>
           ))}
         </div>
 
-        {/* Right: Status indicators */}
-        <div className="flex items-center gap-2 px-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-[10px] text-slate-600">Online</span>
+        {/* Right: Status ring */}
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+          </span>
+          <span className="text-[10px] text-slate-500 font-medium">Live</span>
         </div>
       </nav>
 

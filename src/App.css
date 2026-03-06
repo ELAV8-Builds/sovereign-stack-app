@@ -112,6 +112,17 @@
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle top accent glow */
+nav[data-tauri-drag-region] {
+  background: linear-gradient(
+    180deg,
+    rgba(99, 102, 241, 0.04) 0%,
+    rgba(15, 23, 42, 0.7) 100%
+  );
 }
 
 /* Custom scrollbar */
