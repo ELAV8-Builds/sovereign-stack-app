@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { safeInvoke, localGet } from "@/lib/tauri";
 import { chatWithAI, checkLLMHealth } from "@/lib/ai";
+import { chatWithAgent, type AgentToolCall } from "@/lib/agent";
 import {
   createConversation,
   getConversation,
@@ -8,7 +9,10 @@ import {
   type Message,
 } from "@/lib/conversations";
 import { ConversationSidebar } from "./ConversationSidebar";
+import { ToolCallBlock } from "./ToolCallBlock";
 import toast from "react-hot-toast";
+
+// ─── Types ───────────────────────────────────────────────────────────────
 
 interface ChatMessage {
   id: string;
@@ -16,6 +20,10 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   status?: "sending" | "sent" | "error";
+  // Agent mode: tool calls executed during this message
+  toolCalls?: AgentToolCall[];
+  // Agent mode: thinking text before tool calls
+  thinking?: string;
 }
 
 interface ChannelStatus {
@@ -51,6 +59,15 @@ export function ChatInterface() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(false);
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
+
+  // Agent mode state
+  const [agentMode, setAgentMode] = useState(true); // Default: agent mode ON
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentIteration, setAgentIteration] = useState(0);
+  const [agentToolCalls, setAgentToolCalls] = useState<AgentToolCall[]>([]);
+  const [agentThinking, setAgentThinking] = useState("");
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -59,7 +76,9 @@ export function ChatInterface() {
   const welcomeMessage: ChatMessage = {
     id: "welcome",
     role: "agent",
-    content: `Hey! I'm ${agentName}. I can manage your services, answer questions, run tasks — whatever you need. What are we working on?`,
+    content: agentMode
+      ? `Hey! I'm ${agentName}. I'm in *Agent Mode* — I can actually execute commands, read/write files, clone repos, and more. Try asking me to do something!`
+      : `Hey! I'm ${agentName}. I can help answer questions and have conversations. What are we working on?`,
     timestamp: new Date(),
     status: "sent",
   };
@@ -78,7 +97,7 @@ export function ChatInterface() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping, scrollToBottom]);
+  }, [messages, isTyping, agentToolCalls, scrollToBottom]);
 
   // ── Check channels ────────────────────────────────────────────────────
 
@@ -107,7 +126,6 @@ export function ChatInterface() {
         setMessages(conv.messages.map(apiToLocal));
         setApiAvailable(true);
       } catch {
-        // API not available — work in local-only mode
         setApiAvailable(false);
         toast.error("Could not load conversation — API may be offline");
       } finally {
@@ -126,7 +144,6 @@ export function ChatInterface() {
       setMessages([]);
       setApiAvailable(true);
     } catch {
-      // API not available — work in local-only mode
       setActiveConversationId(null);
       setMessages([]);
       setApiAvailable(false);
@@ -142,11 +159,154 @@ export function ChatInterface() {
     textarea.style.height = Math.min(textarea.scrollHeight, 150) + "px";
   };
 
-  // ── Send message ──────────────────────────────────────────────────────
+  // ── Stop agent ────────────────────────────────────────────────────────
+
+  const handleStopAgent = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setAgentRunning(false);
+    setIsTyping(false);
+  };
+
+  // ── Send message (Agent Mode) ─────────────────────────────────────────
+
+  const handleSendAgent = async (trimmed: string, convId: string | null) => {
+    setAgentRunning(true);
+    setAgentIteration(0);
+    setAgentToolCalls([]);
+    setAgentThinking("");
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const history = messages
+      .filter((m) => m.id !== "welcome")
+      .slice(-20)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.content,
+      }));
+
+    const collectedToolCalls: AgentToolCall[] = [];
+    let thinkingText = "";
+
+    try {
+      const finalMessage = await chatWithAgent(
+        trimmed,
+        convId,
+        history,
+        {
+          onStatus: (iteration) => {
+            setAgentIteration(iteration);
+          },
+          onThinking: (text) => {
+            thinkingText += text;
+            setAgentThinking(thinkingText);
+          },
+          onToolCall: (id, tool, input) => {
+            const newCall: AgentToolCall = { id, tool, input, status: 'running' };
+            collectedToolCalls.push(newCall);
+            setAgentToolCalls([...collectedToolCalls]);
+          },
+          onToolResult: (id, _tool, output, durationMs) => {
+            const call = collectedToolCalls.find(c => c.id === id);
+            if (call) {
+              call.output = output;
+              call.status = (output as Record<string, unknown>).error ? 'error' : 'completed';
+              call.duration_ms = durationMs;
+              setAgentToolCalls([...collectedToolCalls]);
+            }
+          },
+          onMessage: (text) => {
+            const agentMsg: ChatMessage = {
+              id: `agent-${Date.now()}`,
+              role: "agent",
+              content: text,
+              timestamp: new Date(),
+              status: "sent",
+              toolCalls: collectedToolCalls.length > 0 ? [...collectedToolCalls] : undefined,
+              thinking: thinkingText || undefined,
+            };
+
+            setIsTyping(false);
+            setAgentRunning(false);
+            setAgentToolCalls([]);
+            setAgentThinking("");
+            setMessages((prev) => [...prev, agentMsg]);
+
+            // Persist agent response
+            if (convId && apiAvailable !== false) {
+              addMessage(convId, "agent", text).catch(() => {});
+            }
+          },
+          onError: (error) => {
+            toast.error(`Agent error: ${error}`, { duration: 5000 });
+          },
+          onDone: () => {
+            setAgentRunning(false);
+            setIsTyping(false);
+          },
+        },
+        abortController.signal
+      );
+
+      if (llmAvailable === false || llmAvailable === null) {
+        setLlmAvailable(true);
+      }
+
+      // If onMessage wasn't called but we got a final message from the promise
+      if (finalMessage && !messages.find(m => m.content === finalMessage)) {
+        // The onMessage callback should have handled this, but just in case
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        toast('Agent stopped', { icon: '🛑' });
+      } else {
+        throw err; // Let the outer handler deal with it
+      }
+    }
+  };
+
+  // ── Send message (Chat Mode — original behavior) ──────────────────────
+
+  const handleSendChat = async (trimmed: string, convId: string | null) => {
+    const history = messages
+      .filter((m) => m.id !== "welcome")
+      .slice(-20)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.content,
+      }));
+
+    const response = await chatWithAI(trimmed, history);
+
+    const agentMsg: ChatMessage = {
+      id: `agent-${Date.now()}`,
+      role: "agent",
+      content: response,
+      timestamp: new Date(),
+      status: "sent",
+    };
+
+    setIsTyping(false);
+    setMessages((prev) => [...prev, agentMsg]);
+
+    if (convId && apiAvailable !== false) {
+      addMessage(convId, "agent", response).catch(() => {});
+    }
+
+    if (llmAvailable === false || llmAvailable === null) {
+      setLlmAvailable(true);
+    }
+  };
+
+  // ── Send message (unified entry point) ────────────────────────────────
 
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || agentRunning) return;
 
     // Create conversation on first message if none active
     let convId = activeConversationId;
@@ -177,46 +337,20 @@ export function ChatInterface() {
       inputRef.current.style.height = "auto";
     }
 
-    // Persist user message to API (fire and forget)
+    // Persist user message
     if (convId && apiAvailable !== false) {
-      addMessage(convId, "user", trimmed).catch(() => {
-        // Silently fail — message is still in local state
-      });
+      addMessage(convId, "user", trimmed).catch(() => {});
     }
 
     try {
-      // Build conversation history for context (last 20 messages)
-      const history = messages
-        .filter((m) => m.id !== "welcome")
-        .slice(-20)
-        .map((m) => ({
-          role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-          content: m.content,
-        }));
-
-      const response = await chatWithAI(trimmed, history);
-
-      const agentMsg: ChatMessage = {
-        id: `agent-${Date.now()}`,
-        role: "agent",
-        content: response,
-        timestamp: new Date(),
-        status: "sent",
-      };
-
-      setIsTyping(false);
-      setMessages((prev) => [...prev, agentMsg]);
-
-      // Persist agent response
-      if (convId && apiAvailable !== false) {
-        addMessage(convId, "agent", response).catch(() => {});
-      }
-
-      if (llmAvailable === false || llmAvailable === null) {
-        setLlmAvailable(true);
+      if (agentMode) {
+        await handleSendAgent(trimmed, convId);
+      } else {
+        await handleSendChat(trimmed, convId);
       }
     } catch (err) {
       setIsTyping(false);
+      setAgentRunning(false);
 
       // Fallback to Tauri backend
       try {
@@ -231,7 +365,6 @@ export function ChatInterface() {
           status: "sent",
         };
         setMessages((prev) => [...prev, agentMsg]);
-
         if (convId && apiAvailable !== false) {
           addMessage(convId, "agent", tauriResponse).catch(() => {});
         }
@@ -359,6 +492,21 @@ export function ChatInterface() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Agent Mode Toggle */}
+            <button
+              onClick={() => setAgentMode(!agentMode)}
+              disabled={agentRunning}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                agentMode
+                  ? "bg-emerald-900/30 text-emerald-400 border-emerald-800 hover:bg-emerald-900/50"
+                  : "bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700"
+              } ${agentRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              title={agentMode ? "Agent Mode: AI can execute commands" : "Chat Mode: Text-only conversation"}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${agentMode ? "bg-emerald-400" : "bg-slate-600"}`} />
+              {agentMode ? "⚡ Agent" : "💬 Chat"}
+            </button>
+
             {llmAvailable === false && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400 border border-yellow-800">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
@@ -403,12 +551,39 @@ export function ChatInterface() {
               >
                 {msg.role === "agent" && (
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm">🤖</span>
+                    <span className="text-sm">{msg.toolCalls ? "⚡" : "🤖"}</span>
                     <span className="text-xs font-semibold text-slate-400">
                       {agentName}
                     </span>
+                    {msg.toolCalls && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800/50">
+                        {msg.toolCalls.length} tool{msg.toolCalls.length !== 1 ? 's' : ''} used
+                      </span>
+                    )}
                   </div>
                 )}
+
+                {/* Thinking text (before tool calls) */}
+                {msg.thinking && (
+                  <div className="text-sm text-slate-400 italic mb-2">
+                    {renderContent(msg.thinking)}
+                  </div>
+                )}
+
+                {/* Tool call blocks */}
+                {msg.toolCalls && msg.toolCalls.map((tc) => (
+                  <ToolCallBlock
+                    key={tc.id}
+                    id={tc.id}
+                    tool={tc.tool}
+                    input={tc.input}
+                    output={tc.output}
+                    status={tc.status}
+                    durationMs={tc.duration_ms}
+                  />
+                ))}
+
+                {/* Main content */}
                 <div className="text-sm leading-relaxed text-slate-100">
                   {renderContent(msg.content)}
                 </div>
@@ -423,25 +598,57 @@ export function ChatInterface() {
             </div>
           ))}
 
-          {/* Typing indicator */}
-          {isTyping && (
+          {/* Agent running indicator — shows live tool calls */}
+          {agentRunning && (
+            <div className="flex justify-start animate-fadeIn">
+              <div className="max-w-[80%] bg-slate-800/90 border border-slate-700 rounded-2xl rounded-bl-md px-4 py-3 shadow-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm">⚡</span>
+                  <span className="text-xs font-semibold text-slate-400">{agentName}</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400 border border-amber-800/50 animate-pulse">
+                    Step {agentIteration}
+                  </span>
+                </div>
+
+                {/* Thinking text */}
+                {agentThinking && (
+                  <div className="text-sm text-slate-400 italic mb-2">
+                    {renderContent(agentThinking)}
+                  </div>
+                )}
+
+                {/* Live tool calls */}
+                {agentToolCalls.map((tc) => (
+                  <ToolCallBlock
+                    key={tc.id}
+                    id={tc.id}
+                    tool={tc.tool}
+                    input={tc.input}
+                    output={tc.output}
+                    status={tc.status}
+                    durationMs={tc.duration_ms}
+                  />
+                ))}
+
+                {/* Spinner at the bottom */}
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="animate-spin w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full" />
+                  <span className="text-[10px] text-slate-500">Working...</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Simple typing indicator (chat mode only) */}
+          {isTyping && !agentRunning && (
             <div className="flex justify-start animate-fadeIn">
               <div className="bg-slate-800/90 border border-slate-700 rounded-2xl rounded-bl-md px-4 py-3 shadow-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-sm">🤖</span>
                   <div className="flex gap-1">
-                    <span
-                      className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    />
-                    <span
-                      className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    />
-                    <span
-                      className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    />
+                    <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                   </div>
                 </div>
               </div>
@@ -460,37 +667,53 @@ export function ChatInterface() {
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message..."
+                placeholder={agentMode ? "Ask me to do something..." : "Type a message..."}
                 rows={1}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-all duration-200"
+                disabled={agentRunning}
+                className={`w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-all duration-200 ${
+                  agentRunning ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
                 style={{ minHeight: "44px", maxHeight: "150px" }}
               />
             </div>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className={`flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200 ${
-                input.trim()
-                  ? "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20 active:scale-95"
-                  : "bg-slate-800 text-slate-600 cursor-not-allowed"
-              }`}
-              aria-label="Send message"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+
+            {/* Send or Stop button */}
+            {agentRunning ? (
+              <button
+                onClick={handleStopAgent}
+                className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20 active:scale-95 transition-all duration-200"
+                aria-label="Stop agent"
               >
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-              </svg>
-            </button>
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className={`flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200 ${
+                  input.trim()
+                    ? "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20 active:scale-95"
+                    : "bg-slate-800 text-slate-600 cursor-not-allowed"
+                }`}
+                aria-label="Send message"
+              >
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-4 mt-2 max-w-4xl mx-auto px-1">
             <span className="text-[10px] text-slate-600">
-              Shift+Enter for new line
+              {agentMode ? "⚡ Agent Mode — Shift+Enter for new line" : "Shift+Enter for new line"}
             </span>
+            {agentRunning && (
+              <span className="text-[10px] text-amber-400 animate-pulse">
+                Working on step {agentIteration}...
+              </span>
+            )}
           </div>
         </div>
       </div>
