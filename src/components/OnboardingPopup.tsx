@@ -249,8 +249,28 @@ export function OnboardingPopup({ onComplete, forceRestart }: OnboardingPopupPro
     runLaunchSequence();
   };
 
-  const handleAllServicesReady = () => {
+  const handleAllServicesReady = async () => {
     setStackHealthy(true);
+
+    // Save entered keys to the encrypted vault so all services can use them
+    const keysToSave: Array<{ id: string; value: string }> = [];
+    if (apiKey.trim()) keysToSave.push({ id: "anthropic", value: apiKey.trim() });
+    if (openaiKey.trim()) keysToSave.push({ id: "openai", value: openaiKey.trim() });
+    if (geminiKey.trim()) keysToSave.push({ id: "gemini", value: geminiKey.trim() });
+
+    for (const key of keysToSave) {
+      try {
+        await fetch(`http://127.0.0.1:3100/api/settings/vault/${key.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: key.value }),
+          signal: AbortSignal.timeout(5000),
+        });
+      } catch {
+        // Vault save failed — non-critical, keys are still in .env
+      }
+    }
+
     setStep("channels");
   };
 
