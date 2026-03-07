@@ -897,7 +897,7 @@ export function ChatInterface() {
               } animate-fadeIn`}
             >
               <div
-                className={`max-w-[80%] ${
+                className={`max-w-[80%] group ${
                   msg.role === "user"
                     ? "bg-blue-600/90 rounded-2xl rounded-br-md"
                     : "bg-slate-800/90 border border-slate-700 rounded-2xl rounded-bl-md"

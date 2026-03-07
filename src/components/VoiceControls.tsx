@@ -168,25 +168,28 @@ export function SpeakButton({ text, className = "" }: SpeakButtonProps) {
   return (
     <button
       onClick={handleSpeak}
-      className={`p-1 rounded transition-all ${
+      className={`px-1.5 py-0.5 rounded-md transition-all inline-flex items-center gap-1 ${
         playing
-          ? "text-blue-400 animate-pulse"
-          : "text-slate-600 hover:text-slate-400 opacity-0 group-hover:opacity-100"
+          ? "bg-blue-500/20 text-blue-400 animate-pulse border border-blue-500/30"
+          : "bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700 border border-slate-600/50"
       } ${className}`}
       title={playing ? "Stop speaking" : "Read aloud"}
     >
       {playing ? (
-        // Stop icon
-        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-          <rect x="3" y="3" width="10" height="10" rx="1" />
-        </svg>
+        <>
+          <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="3" y="3" width="10" height="10" rx="1" />
+          </svg>
+          <span className="text-[9px] font-medium">Stop</span>
+        </>
       ) : (
-        // Speaker icon
-        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M2 6h2l4-3v10L4 10H2V6z" fill="currentColor" />
-          <path d="M10.5 5.5a3.5 3.5 0 010 5" />
-          <path d="M12.5 3.5a6 6 0 010 9" />
-        </svg>
+        <>
+          <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 6h2l4-3v10L4 10H2V6z" fill="currentColor" />
+            <path d="M10.5 5.5a3.5 3.5 0 010 5" />
+          </svg>
+          <span className="text-[9px] font-medium">Listen</span>
+        </>
       )}
     </button>
   );
