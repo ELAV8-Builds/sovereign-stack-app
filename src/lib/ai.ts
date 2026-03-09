@@ -68,7 +68,8 @@ Keep responses concise and helpful. Use bullet points for lists. When the user a
  */
 export async function chatWithAI(
   userMessage: string,
-  conversationHistory: ChatMessage[] = []
+  conversationHistory: ChatMessage[] = [],
+  signal?: AbortSignal
 ): Promise<string> {
   const messages: ChatMessage[] = [
     { role: 'system', content: getSystemPrompt() },
@@ -90,6 +91,7 @@ export async function chatWithAI(
       max_tokens: 1024,
       temperature: 0.7,
     }),
+    signal,
   });
 
   if (!response.ok) {
