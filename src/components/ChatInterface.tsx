@@ -24,6 +24,34 @@ import { playNotificationDing } from "@/lib/notifications";
 import type { FleetAgent } from "@/lib/fleet";
 import toast from "react-hot-toast";
 
+// ─── Queue Types ──────────────────────────────────────────────────────────
+
+interface QueuedMessage {
+  id: string;
+  content: string;
+  timestamp: number;
+}
+
+const QUEUE_STORAGE_KEY = "sovereign_chat_queue";
+const STALE_THRESHOLD_MS = 45_000;
+
+function loadPersistedQueue(): QueuedMessage[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch { /* corrupted */ }
+  return [];
+}
+
+function formatElapsed(ms: number) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────
 
 interface ChatMessage {
@@ -84,6 +112,13 @@ export function ChatInterface() {
   const abortControllerMapRef = useRef<Record<string, AbortController>>({});
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
   const [showSoundSettings, setShowSoundSettings] = useState(false);
+
+  // ── Queue & Stale Detection state ──────────────────────────────────────
+  const [queue, setQueue] = useState<QueuedMessage[]>(loadPersistedQueue);
+  const [loadingElapsed, setLoadingElapsed] = useState(0);
+  const [showStaleWarning, setShowStaleWarning] = useState(false);
+  const loadingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadingStartRef = useRef<number>(0);
 
   // Fleet Mode state — persist selection to localStorage
   const [activeFleetAgent, setActiveFleetAgent] = useState<FleetAgent | null>(() => {
@@ -149,6 +184,80 @@ export function ChatInterface() {
       localStorage.removeItem("sovereign_active_fleet_agent");
     }
   }, [activeFleetAgent]);
+
+  // ── Queue persistence ────────────────────────────────────────────────
+  useEffect(() => {
+    try { localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue)); } catch { /* full */ }
+  }, [queue]);
+
+  // ── Loading elapsed timer & stale detection ─────────────────────────
+  useEffect(() => {
+    if (agentRunning || isTyping) {
+      loadingStartRef.current = Date.now();
+      setLoadingElapsed(0);
+      setShowStaleWarning(false);
+      loadingTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - loadingStartRef.current;
+        setLoadingElapsed(elapsed);
+        if (elapsed >= STALE_THRESHOLD_MS) setShowStaleWarning(true);
+      }, 1000);
+    } else {
+      if (loadingTimerRef.current) { clearInterval(loadingTimerRef.current); loadingTimerRef.current = null; }
+      setLoadingElapsed(0);
+      setShowStaleWarning(false);
+    }
+    return () => { if (loadingTimerRef.current) clearInterval(loadingTimerRef.current); };
+  }, [agentRunning, isTyping]);
+
+  const resetStaleTimer = useCallback(() => {
+    loadingStartRef.current = Date.now();
+    setLoadingElapsed(0);
+    setShowStaleWarning(false);
+  }, []);
+
+  // ── Queue processor: auto-send next queued message after completion ──
+  useEffect(() => {
+    if (!agentRunning && !isTyping && queue.length > 0) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      setInput(next.content);
+      setTimeout(() => {
+        setInput('');
+        void (async () => {
+          const trimmed = next.content;
+          let convId = activeConversationId;
+          if (!convId && apiAvailable !== false) {
+            try {
+              const conv = await createConversation();
+              convId = conv.id;
+              setActiveConversationId(conv.id);
+              setApiAvailable(true);
+            } catch { setApiAvailable(false); }
+          }
+          const userMsg: ChatMessage = {
+            id: `user-${Date.now()}`,
+            role: "user",
+            content: trimmed,
+            timestamp: new Date(),
+            status: "sent",
+          };
+          const sendKey = activeFleetAgent?.conversation_id ?? convId ?? "__none__";
+          setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), userMsg] }));
+          setIsTypingMap((prev) => ({ ...prev, [sendKey]: true }));
+          if (convId && apiAvailable !== false) addMessage(convId, "user", trimmed).catch(() => {});
+          if (convId) markConversationRead(convId);
+          try {
+            if (agentMode) await handleSendAgent(trimmed, convId);
+            else await handleSendChat(trimmed, convId);
+          } catch {
+            setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
+            setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
+          }
+        })();
+      }, 200);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRunning, isTyping, queue.length]);
 
   // ── Smart auto-scroll (respects user scroll position) ───────────────
 
@@ -348,18 +457,22 @@ export function ChatInterface() {
         history,
         {
           onStatus: (iteration) => {
+            resetStaleTimer();
             setAgentIterationMap((prev) => ({ ...prev, [sendKey]: iteration }));
           },
           onThinking: (text) => {
+            resetStaleTimer();
             thinkingText += text;
             setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: thinkingText }));
           },
           onToolCall: (id, tool, input) => {
+            resetStaleTimer();
             const newCall: AgentToolCall = { id, tool, input, status: 'running' };
             collectedToolCalls.push(newCall);
             setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [...collectedToolCalls] }));
           },
           onToolResult: (id, _tool, output, durationMs) => {
+            resetStaleTimer();
             const call = collectedToolCalls.find(c => c.id === id);
             if (call) {
               call.output = output;
@@ -369,6 +482,7 @@ export function ChatInterface() {
             }
           },
           onMessage: (text) => {
+            resetStaleTimer();
             const agentMsg: ChatMessage = {
               id: `agent-${Date.now()}`,
               role: "agent",
@@ -417,8 +531,13 @@ export function ChatInterface() {
       if ((err as Error).name === 'AbortError') {
         toast('Agent stopped', { icon: '🛑' });
       } else {
-        throw err;
+        const errMsg = (err as Error).message || 'Unknown error';
+        toast.error(`Agent error: ${errMsg}`, { duration: 5000 });
       }
+    } finally {
+      setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
+      setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
+      delete abortControllerMapRef.current[sendKey];
     }
   };
 
@@ -426,6 +545,10 @@ export function ChatInterface() {
 
   const handleSendChat = async (trimmed: string, convId: string | null) => {
     const sendKey = activeFleetAgent?.conversation_id ?? convId ?? "__none__";
+
+    const abortController = new AbortController();
+    abortControllerMapRef.current[sendKey] = abortController;
+
     const history = messages
       .filter((m) => m.id !== "welcome")
       .slice(-20)
@@ -434,7 +557,7 @@ export function ChatInterface() {
         content: m.content,
       }));
 
-    const response = await chatWithAI(trimmed, history);
+    const response = await chatWithAI(trimmed, history, abortController.signal);
 
     const agentMsg: ChatMessage = {
       id: `agent-${Date.now()}`,
@@ -446,6 +569,7 @@ export function ChatInterface() {
 
     setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
     setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), agentMsg] }));
+    delete abortControllerMapRef.current[sendKey];
 
     if (convId && apiAvailable !== false) {
       addMessage(convId, "agent", response).catch(() => {});
@@ -458,9 +582,41 @@ export function ChatInterface() {
 
   // ── Send message (unified entry point) ────────────────────────────────
 
+  // ── Interrupt: stop current + queue the new message first ─────────────
+  const handleInterrupt = () => {
+    const trimmed = input.trim();
+    handleStopAgent();
+    if (trimmed) {
+      setInput("");
+      if (inputRef.current) inputRef.current.style.height = "auto";
+      setQueue((prev) => [
+        { id: `q-${Date.now()}`, content: trimmed, timestamp: Date.now() },
+        ...prev,
+      ]);
+    }
+  };
+
+  // ── Queue a message while agent is running ──────────────────────────
+  const handleQueueMessage = () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    setInput("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
+    setQueue((prev) => [
+      ...prev,
+      { id: `q-${Date.now()}`, content: trimmed, timestamp: Date.now() },
+    ]);
+    toast(`Queued: "${trimmed.slice(0, 40)}${trimmed.length > 40 ? '...' : ''}"`, { icon: '📋', duration: 2000 });
+  };
+
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed || agentRunning) return;
+    if (!trimmed) return;
+
+    if (agentRunning) {
+      handleQueueMessage();
+      return;
+    }
 
     // Create conversation on first message if none active
     let convId = activeConversationId;
@@ -577,6 +733,10 @@ export function ChatInterface() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+    if (e.key === "Escape" && agentRunning) {
+      e.preventDefault();
+      handleStopAgent();
     }
   };
 
@@ -1000,11 +1160,43 @@ export function ChatInterface() {
                   </div>
                 )}
 
-                {/* Spinner at the bottom */}
+                {/* Spinner + elapsed time */}
                 <div className="flex items-center gap-2 mt-2">
                   <span className="animate-spin w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full" />
                   <span className="text-[10px] text-slate-500">Working...</span>
+                  <span className="text-[10px] text-slate-600 tabular-nums ml-auto">{formatElapsed(loadingElapsed)}</span>
                 </div>
+
+                {/* Stale warning */}
+                {showStaleWarning && (
+                  <div className="flex items-center gap-2 mt-2 px-2.5 py-1.5 rounded-lg bg-amber-900/20 border border-amber-800/40 animate-fadeIn">
+                    <span className="flex items-center justify-center w-4 h-4 min-w-[16px] rounded-full bg-amber-500 text-[10px] font-bold text-black">!</span>
+                    <span className="text-[11px] text-amber-400">No progress for {formatElapsed(loadingElapsed)}</span>
+                    <div className="flex gap-1.5 ml-auto">
+                      <button
+                        onClick={() => {
+                          handleStopAgent();
+                          const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+                          if (lastUserMsg) {
+                            setTimeout(() => {
+                              setInput(lastUserMsg.content);
+                              handleSend();
+                            }, 300);
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                      >
+                        Retry
+                      </button>
+                      <button
+                        onClick={handleStopAgent}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-900/40 hover:bg-red-900/60 text-red-400 border border-red-800/50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1028,8 +1220,45 @@ export function ChatInterface() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Queue display */}
+        {queue.length > 0 && (
+          <div className="border-t border-slate-800 bg-slate-850/60 px-4 py-2 max-h-[120px] overflow-y-auto">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                  Queued ({queue.length})
+                </span>
+                <button
+                  onClick={() => setQueue([])}
+                  className="text-[10px] text-slate-600 hover:text-red-400 transition-colors"
+                >
+                  Clear all
+                </button>
+              </div>
+              {queue.map((item, idx) => (
+                <div key={item.id} className="flex items-center gap-2 py-1 px-2 mb-1 rounded bg-slate-800/60 border border-slate-700/50">
+                  <span className="text-[10px] font-bold text-blue-400 min-w-[14px] text-center">{idx + 1}</span>
+                  <span className="text-xs text-slate-400 flex-1 truncate">{item.content}</span>
+                  <button
+                    onClick={() => setQueue((prev) => prev.filter((q) => q.id !== item.id))}
+                    className="text-[10px] text-slate-600 hover:text-red-400 transition-colors px-1"
+                    title="Remove"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Input area */}
         <div className="border-t border-slate-800 bg-slate-900/80 backdrop-blur p-4">
+          {agentRunning && (
+            <div className="text-[10px] text-slate-600 mb-1.5 max-w-4xl mx-auto px-1">
+              Type to queue a message — press Esc to stop
+            </div>
+          )}
           <div className="flex items-end gap-3 max-w-4xl mx-auto">
             <div className="flex-1 relative">
               <textarea
@@ -1037,11 +1266,18 @@ export function ChatInterface() {
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder={agentMode ? "Ask me to do something..." : "Type a message..."}
+                placeholder={
+                  agentRunning
+                    ? "Type to queue next message..."
+                    : agentMode
+                    ? "Ask me to do something..."
+                    : "Type a message..."
+                }
                 rows={1}
-                disabled={agentRunning}
-                className={`w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-all duration-200 ${
-                  agentRunning ? 'opacity-50 cursor-not-allowed' : ''
+                className={`w-full bg-slate-800 border rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-all duration-200 ${
+                  agentRunning && input.trim()
+                    ? 'border-amber-600/50'
+                    : 'border-slate-700'
                 }`}
                 style={{ minHeight: "44px", maxHeight: "150px" }}
               />
@@ -1112,17 +1348,38 @@ export function ChatInterface() {
               />
             )}
 
-            {/* Send or Stop button */}
+            {/* Send / Stop / Queue / Interrupt buttons */}
             {agentRunning ? (
-              <button
-                onClick={handleStopAgent}
-                className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20 active:scale-95 transition-all duration-200"
-                aria-label="Stop agent"
-              >
-                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
-              </button>
+              <div className="flex gap-1.5 flex-shrink-0">
+                {input.trim() && (
+                  <button
+                    onClick={handleInterrupt}
+                    className="h-11 px-3 rounded-xl flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/20 active:scale-95 transition-all duration-200"
+                    aria-label="Interrupt and send"
+                    title="Stop current and send this message"
+                  >
+                    Interrupt
+                  </button>
+                )}
+                <button
+                  onClick={input.trim() ? handleQueueMessage : handleStopAgent}
+                  className={`h-11 rounded-xl flex items-center justify-center active:scale-95 transition-all duration-200 ${
+                    input.trim()
+                      ? "px-3 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-700/50 text-xs font-semibold"
+                      : "w-11 bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20"
+                  }`}
+                  aria-label={input.trim() ? "Queue message" : "Stop agent"}
+                  title={input.trim() ? "Add to queue" : "Stop agent"}
+                >
+                  {input.trim() ? (
+                    "Queue"
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
+                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             ) : (
               <button
                 onClick={handleSend}
@@ -1142,11 +1399,20 @@ export function ChatInterface() {
           </div>
           <div className="flex items-center gap-4 mt-2 max-w-4xl mx-auto px-1">
             <span className="text-[10px] text-slate-600">
-              {agentMode ? "⚡ Agent Mode — Shift+Enter for new line" : "Shift+Enter for new line"}
+              {agentRunning
+                ? "Type to queue — Enter to queue, Esc to stop"
+                : agentMode
+                ? "⚡ Agent Mode — Shift+Enter for new line"
+                : "Shift+Enter for new line"}
             </span>
             {agentRunning && (
               <span className="text-[10px] text-amber-400 animate-pulse">
-                Working on step {agentIteration}...
+                Step {agentIteration} · {formatElapsed(loadingElapsed)}
+              </span>
+            )}
+            {queue.length > 0 && (
+              <span className="text-[10px] text-blue-400">
+                {queue.length} queued
               </span>
             )}
             {!agentRunning && anyAgentRunning && (
