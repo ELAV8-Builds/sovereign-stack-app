@@ -1,0 +1,72 @@
+# ============================================================
+# LiteLLM — Model Router Configuration
+# 9 tiers across 3 providers (Anthropic, OpenAI, Google)
+# ============================================================
+
+model_list:
+  # ── Tier: trivial (Haiku 4.5 — cheapest) ───────────────
+  - model_name: trivial
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── Tier: light (Sonnet 4.5) ───────────────────────────
+  - model_name: light
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── Tier: coder (Opus 4.6 — max power for coding) ──────
+  - model_name: coder
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── Tier: medium (Sonnet 4.5 — conversational) ─────────
+  - model_name: medium
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── Tier: heavy (Opus 4.6 — max reasoning) ─────────────
+  - model_name: heavy
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── Tier: codex (GPT-5.2 Codex — second opinion) ───────
+  - model_name: codex
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ── Tier: crosscheck (GPT-5.2 — alt strategy) ──────────
+  - model_name: crosscheck
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ── Tier: critic (GPT-5.2 — security review) ───────────
+  - model_name: critic
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ── Tier: creative (Gemini — visual/UX/image gen) ──────
+  - model_name: creative
+    litellm_params:
+      model: gemini/gemini-2.0-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  cache: true
+  cache_params:
+    type: redis
+    host: redis
+    port: 6379
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL

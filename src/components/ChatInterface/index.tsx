@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { safeInvoke, localGet, localSet } from "@/lib/tauri";
-import { chatWithAI, checkLLMHealth } from "@/lib/ai";
+import { checkLLMHealth } from "@/lib/ai";
 import { chatWithAgent, type AgentToolCall } from "@/lib/agent";
 import {
   createConversation,
@@ -44,8 +44,7 @@ export function ChatInterface() {
   const [conversationLoading, setConversationLoading] = useState(false);
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
 
-  // ── Agent mode state (per-conversation) ────────────────────────────
-  const [agentMode, setAgentMode] = useState(true);
+  // ── Agent state (per-conversation) — always routes through Overmind ─
   const [agentRunningMap, setAgentRunningMap] = useState<Record<string, boolean>>({});
   const [agentIterationMap, setAgentIterationMap] = useState<Record<string, number>>({});
   const [agentToolCallsMap, setAgentToolCallsMap] = useState<Record<string, AgentToolCall[]>>({});
@@ -91,9 +90,7 @@ export function ChatInterface() {
     role: "agent",
     content: activeFleetAgent
       ? `${activeFleetAgent.icon} I'm ${activeFleetAgent.name}, a specialized ${activeFleetAgent.template.replace("_", " ")} agent. How can I help?`
-      : agentMode
-        ? `Hey! I'm ${agentName}. I'm in *Agent Mode* — I can actually execute commands, read/write files, clone repos, and more. Try asking me to do something!`
-        : `Hey! I'm ${agentName}. I can help answer questions and have conversations. What are we working on?`,
+      : `Hey! I'm ${agentName}, powered by the Overmind. I can execute commands, manage your fleet, access tools, and more. What are we working on?`,
     timestamp: new Date(),
     status: "sent",
   };
@@ -368,25 +365,6 @@ export function ChatInterface() {
     }
   };
 
-  // ── Send Chat Mode ─────────────────────────────────────────────────
-
-  const handleSendChat = async (trimmed: string, convId: string | null) => {
-    const sendKey = activeFleetAgent?.conversation_id ?? convId ?? "__none__";
-    const abortController = new AbortController();
-    abortControllerMapRef.current[sendKey] = abortController;
-
-    const history = messages.filter((m) => m.id !== "welcome").slice(-20)
-      .map((m) => ({ role: m.role === "user" ? ("user" as const) : ("assistant" as const), content: m.content }));
-
-    const response = await chatWithAI(trimmed, history, abortController.signal);
-    const agentMsg: ChatMessage = { id: `agent-${Date.now()}`, role: "agent", content: response, timestamp: new Date(), status: "sent" };
-    setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
-    setMessagesMap((prev) => ({ ...prev, [sendKey]: [...(prev[sendKey] ?? []), agentMsg] }));
-    delete abortControllerMapRef.current[sendKey];
-    if (convId && apiAvailable !== false) addMessage(convId, "agent", response).catch(() => {});
-    if (llmAvailable === false || llmAvailable === null) setLlmAvailable(true);
-  };
-
   // ── Unified send entry point ───────────────────────────────────────
 
   const handleSend = async () => {
@@ -410,8 +388,7 @@ export function ChatInterface() {
     if (convId) markConversationRead(convId);
 
     try {
-      if (agentMode) await handleSendAgent(trimmed, convId);
-      else await handleSendChat(trimmed, convId);
+      await handleSendAgent(trimmed, convId);
     } catch (err) {
       setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
       setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
@@ -436,8 +413,7 @@ export function ChatInterface() {
       } else {
         toast("Backend reconnected — retrying your message...", { icon: "🔄" });
         try {
-          if (agentMode) await handleSendAgent(trimmed, convId);
-          else await handleSendChat(trimmed, convId);
+          await handleSendAgent(trimmed, convId);
         } catch {
           const errorMsg: ChatMessage = {
             id: `error-${Date.now()}`, role: "agent", status: "error", timestamp: new Date(),
@@ -473,8 +449,7 @@ export function ChatInterface() {
           if (convId && apiAvailable !== false) addMessage(convId, "user", trimmed).catch(() => {});
           if (convId) markConversationRead(convId);
           try {
-            if (agentMode) await handleSendAgent(trimmed, convId);
-            else await handleSendChat(trimmed, convId);
+            await handleSendAgent(trimmed, convId);
           } catch {
             setIsTypingMap((prev) => ({ ...prev, [sendKey]: false }));
             setAgentRunningMap((prev) => ({ ...prev, [sendKey]: false }));
@@ -560,11 +535,9 @@ export function ChatInterface() {
 
         <StatusBar
           channels={channels}
-          agentMode={agentMode}
           agentRunning={agentRunning}
           llmAvailable={llmAvailable}
           messageCount={messages.length}
-          onToggleAgentMode={() => setAgentMode(!agentMode)}
           onShowLaunchAgent={() => setShowLaunchAgent(true)}
           onShowSoundSettings={() => setShowSoundSettings(true)}
           onRetryConnection={async () => {
@@ -601,7 +574,6 @@ export function ChatInterface() {
         <ChatInputBar
           input={input}
           agentRunning={agentRunning}
-          agentMode={agentMode}
           agentIteration={agentIteration}
           anyAgentRunning={anyAgentRunning}
           loadingElapsed={loadingElapsed}

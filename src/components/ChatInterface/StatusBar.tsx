@@ -2,11 +2,9 @@ import type { ChannelStatus } from "./types";
 
 interface StatusBarProps {
   channels: ChannelStatus;
-  agentMode: boolean;
   agentRunning: boolean;
   llmAvailable: boolean | null;
   messageCount: number;
-  onToggleAgentMode: () => void;
   onShowLaunchAgent: () => void;
   onShowSoundSettings: () => void;
   onRetryConnection: () => void;
@@ -14,11 +12,9 @@ interface StatusBarProps {
 
 export function StatusBar({
   channels,
-  agentMode,
   agentRunning,
   llmAvailable,
   messageCount,
-  onToggleAgentMode,
   onShowLaunchAgent,
   onShowSoundSettings,
   onRetryConnection,
@@ -26,7 +22,11 @@ export function StatusBar({
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/50">
       <div className="flex items-center gap-3">
-        <span className="text-sm text-slate-400">Connected:</span>
+        {/* Overmind Brain Indicator */}
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-400 border border-indigo-800">
+          <span className={`w-1.5 h-1.5 rounded-full ${agentRunning ? "bg-indigo-400 animate-pulse" : "bg-indigo-400"}`} />
+          Overmind
+        </span>
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -59,26 +59,11 @@ export function StatusBar({
         </div>
       </div>
       <div className="flex items-center gap-3">
-        {/* Agent Mode Toggle */}
-        <button
-          onClick={onToggleAgentMode}
-          disabled={agentRunning}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-            agentMode
-              ? "bg-emerald-900/30 text-emerald-400 border-emerald-800 hover:bg-emerald-900/50"
-              : "bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700"
-          } ${agentRunning ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-          title={agentMode ? "Agent Mode: AI can execute commands" : "Chat Mode: Text-only conversation"}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${agentMode ? "bg-emerald-400" : "bg-slate-600"}`} />
-          {agentMode ? "⚡ Agent" : "💬 Chat"}
-        </button>
-
         {/* Launch Agent Button */}
         <button
           onClick={onShowLaunchAgent}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-800 bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 transition-all cursor-pointer"
-          title="Launch a new agent"
+          title="Launch a new fleet agent"
         >
           <span className="text-sm leading-none">+</span>
           New Agent

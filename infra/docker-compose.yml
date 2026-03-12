@@ -1,0 +1,157 @@
+# ============================================================
+# SOVEREIGN STACK — Infrastructure Services Only
+# ============================================================
+# These are the infrastructure services that don't need
+# CLI/filesystem access. The API runs natively on the host.
+#
+# Usage: docker compose -f infra/docker-compose.yml up -d
+# ============================================================
+
+services:
+  # ── PostgreSQL (primary database + vector store) ────────
+  postgresql:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=sovereign
+      - POSTGRES_PASSWORD=sovereign
+      - POSTGRES_DB=sovereign
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./config/overmind-init.sql:/docker-entrypoint-initdb.d/02-overmind.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sovereign"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sovereign
+    restart: unless-stopped
+
+  # ── Redis (cache, queues, pub/sub) ──────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sovereign
+    restart: unless-stopped
+
+  # ── Ollama (local embeddings — CPU mode) ────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - sovereign
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── LiteLLM (model router — 9 tiers, 3 providers) ──────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./config/litellm.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-master}
+      - DATABASE_URL=postgresql://sovereign:sovereign@postgresql:5432/litellm
+    env_file:
+      - path: ../.env
+        required: false
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    networks:
+      - sovereign
+    restart: unless-stopped
+
+  # ── memU (semantic memory — pgvector + embeddings) ──────
+  memu:
+    build:
+      context: ../../sovereign-stack-docker/memu
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+    volumes:
+      - memu_data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=8090
+      - DATABASE_URL=postgresql://sovereign:sovereign@postgresql:5432/memu
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    networks:
+      - sovereign
+    restart: unless-stopped
+
+  # ── AnythingLLM (RAG knowledge base) ────────────────────
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    ports:
+      - "3001:3001"
+    volumes:
+      - anythingllm_data:/app/server/storage
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - LLM_PROVIDER=generic-openai
+      - GENERIC_OPEN_AI_BASE_PATH=http://litellm:4000/v1
+      - GENERIC_OPEN_AI_API_KEY=${LITELLM_MASTER_KEY:-sk-litellm-master}
+      - GENERIC_OPEN_AI_MODEL_PREF=medium
+      - GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT=16384
+      - EMBEDDING_ENGINE=ollama
+      - EMBEDDING_BASE_PATH=http://ollama:11434
+      - EMBEDDING_MODEL_PREF=nomic-embed-text:latest
+      - EMBEDDING_MODEL_MAX_CHUNK_LENGTH=8192
+      - VECTOR_DB=lancedb
+      - AUTH_TOKEN=${ANYTHINGLLM_API_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-sovereign-jwt-fallback-key}
+    depends_on:
+      - ollama
+    networks:
+      - sovereign
+    restart: unless-stopped
+
+networks:
+  sovereign:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  memu_data:
+  anythingllm_data:

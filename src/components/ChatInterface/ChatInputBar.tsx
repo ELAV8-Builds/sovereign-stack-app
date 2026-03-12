@@ -103,7 +103,6 @@ function QueueDisplay({
 interface ChatInputBarProps {
   input: string;
   agentRunning: boolean;
-  agentMode: boolean;
   agentIteration: number;
   anyAgentRunning: boolean;
   loadingElapsed: number;
@@ -125,7 +124,6 @@ interface ChatInputBarProps {
 export function ChatInputBar({
   input,
   agentRunning,
-  agentMode,
   agentIteration,
   anyAgentRunning,
   loadingElapsed,
@@ -163,9 +161,7 @@ export function ChatInputBar({
               placeholder={
                 agentRunning
                   ? "Type to queue next message..."
-                  : agentMode
-                  ? "Ask me to do something..."
-                  : "Type a message..."
+                  : "Ask Overmind anything..."
               }
               rows={1}
               className={`w-full bg-slate-800 border rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-all duration-200 ${
@@ -273,9 +269,7 @@ export function ChatInputBar({
           <span className="text-[10px] text-slate-600">
             {agentRunning
               ? "Type to queue — Enter to queue, Esc to stop"
-              : agentMode
-              ? "⚡ Agent Mode — Shift+Enter for new line"
-              : "Shift+Enter for new line"}
+              : "Overmind — Shift+Enter for new line"}
           </span>
           {agentRunning && (
             <span className="text-[10px] text-amber-400 animate-pulse">

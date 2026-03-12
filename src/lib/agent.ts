@@ -1,10 +1,12 @@
 /**
- * Agent Engine Client
+ * Agent Engine Client — Routed Through Overmind
  *
- * SSE client for the agent endpoint that streams tool execution events.
- * Replaces the simple chatWithAI() call for agentic interactions.
+ * SSE client for the Overmind chat gateway. All messages flow through
+ * the Overmind brain which enriches context, enforces policies, and
+ * manages fleet awareness before proxying to the agent engine.
  *
- * Proxy path: /api/sovereign/agent → http://127.0.0.1:3100/api/agent
+ * Primary path: /api/sovereign/overmind/chat → Overmind Gateway → Agent Engine
+ * Direct path:  /api/sovereign/agent (used by fleet workers only)
  */
 
 const API_BASE = '/api/sovereign';
@@ -25,6 +27,7 @@ export interface AgentEvent {
   // status
   iteration?: number;
   max_iterations?: number;
+  stage?: string;
   // thinking / message / error
   content?: string;
   // tool_call / tool_result
@@ -50,15 +53,18 @@ export interface AgentCallbacks {
 // ─── Agent Chat Function ─────────────────────────────────────────────────
 
 /**
- * Send a message to the agent engine and stream back results via SSE.
- * Returns the final text message content.
+ * Send a message to the Overmind chat gateway and stream back results via SSE.
+ * The Overmind enriches the request with policies, fleet status, and memory
+ * before proxying to the agent engine.
+ *
+ * For fleet worker direct access, set overrides.fleet_agent_id to bypass Overmind.
  */
 export interface AgentOverrides {
   /** Custom system prompt (Fleet Mode agents) */
   system_prompt?: string;
   /** Model tier override */
   model?: string;
-  /** Fleet agent ID for routing */
+  /** Fleet agent ID — when set, routes DIRECTLY to agent (bypasses Overmind) */
   fleet_agent_id?: string;
 }
 
@@ -70,20 +76,38 @@ export async function chatWithAgent(
   abortSignal?: AbortSignal,
   overrides?: AgentOverrides
 ): Promise<string> {
-  const queryParams = overrides?.fleet_agent_id
-    ? `?fleet_agent_id=${encodeURIComponent(overrides.fleet_agent_id)}`
-    : '';
+  // Fleet workers bypass Overmind and go directly to the agent engine
+  const isFleetDirect = !!overrides?.fleet_agent_id;
 
-  const response = await fetch(`${API_BASE}/agent${queryParams}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  let url: string;
+  let body: Record<string, unknown>;
+
+  if (isFleetDirect) {
+    // Direct agent access for fleet workers
+    const queryParams = `?fleet_agent_id=${encodeURIComponent(overrides!.fleet_agent_id!)}`;
+    url = `${API_BASE}/agent${queryParams}`;
+    body = {
       message,
       conversation_id: conversationId,
       history,
       ...(overrides?.system_prompt && { system_prompt: overrides.system_prompt }),
       ...(overrides?.model && { model: overrides.model }),
-    }),
+    };
+  } else {
+    // Route through Overmind — the default for all user conversations
+    url = `${API_BASE}/overmind/chat`;
+    body = {
+      message,
+      conversation_id: conversationId,
+      history,
+      ...(overrides?.model && { model: overrides.model }),
+    };
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
     signal: abortSignal,
   });
 
