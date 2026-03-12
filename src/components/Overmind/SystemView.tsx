@@ -15,6 +15,7 @@ import {
   type FleetSafety,
   type SlackListenerStatus,
 } from '@/lib/overmind';
+import { HealthFeed } from './HealthFeed';
 import type { OvermindEvent } from '@/lib/useOvermindSocket';
 
 interface SystemViewProps {
@@ -305,6 +306,12 @@ export function SystemView({ lastEvent }: SystemViewProps) {
             )}
           </div>
         )}
+      </div>
+
+      {/* Health Event Feed */}
+      <div className="border border-white/[0.06] rounded-xl bg-slate-900/50 p-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Health Events</h3>
+        <HealthFeed />
       </div>
 
       {/* Last Tick Debug Info */}

@@ -14,6 +14,7 @@ import { systemRouter } from './system';
 import { rulesRouter } from './rules';
 import { recipesRouter } from './recipes';
 import { fleetRouter } from './fleet';
+import { versionsRouter } from './versions';
 
 export const overmindRouter = Router();
 
@@ -28,3 +29,4 @@ overmindRouter.use(systemRouter);
 overmindRouter.use(rulesRouter);
 overmindRouter.use(recipesRouter);
 overmindRouter.use(fleetRouter);
+overmindRouter.use(versionsRouter);

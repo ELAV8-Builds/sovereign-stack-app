@@ -716,6 +716,220 @@ export async function getEnabledRules(scope: string = 'global'): Promise<OvRule[
 }
 
 // ---------------------------------------------------------------------------
+// Rule Versions
+// ---------------------------------------------------------------------------
+
+export interface OvRuleVersion {
+  id: string;
+  version: number;
+  category: string;
+  snapshot: any;
+  change_type: string;
+  changed_by: string;
+  reason: string | null;
+  conversation_id: string | null;
+  created_at: Date;
+}
+
+function rowToRuleVersion(row: any): OvRuleVersion {
+  return {
+    id: row.id,
+    version: row.version,
+    category: row.category,
+    snapshot: typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) : row.snapshot,
+    change_type: row.change_type,
+    changed_by: row.changed_by,
+    reason: row.reason,
+    conversation_id: row.conversation_id,
+    created_at: row.created_at,
+  };
+}
+
+export async function createRuleVersion(data: {
+  category: string;
+  snapshot: any;
+  change_type: string;
+  changed_by?: string;
+  reason?: string;
+  conversation_id?: string;
+}): Promise<OvRuleVersion> {
+  // Get next version number for this category
+  const { rows: maxRows } = await query(
+    'SELECT COALESCE(MAX(version), 0) as max_ver FROM overmind_rule_versions WHERE category = $1',
+    [data.category]
+  );
+  const nextVersion = (maxRows[0]?.max_ver || 0) + 1;
+
+  const { rows } = await query(
+    `INSERT INTO overmind_rule_versions (version, category, snapshot, change_type, changed_by, reason, conversation_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [nextVersion, data.category, JSON.stringify(data.snapshot), data.change_type, data.changed_by || 'system', data.reason || null, data.conversation_id || null]
+  );
+  return rowToRuleVersion(rows[0]);
+}
+
+export async function listRuleVersions(category?: string): Promise<OvRuleVersion[]> {
+  let sql = 'SELECT * FROM overmind_rule_versions';
+  const params: any[] = [];
+  if (category) {
+    params.push(category);
+    sql += ' WHERE category = $1';
+  }
+  sql += ' ORDER BY created_at DESC LIMIT 100';
+  const { rows } = await query(sql, params);
+  return rows.map(rowToRuleVersion);
+}
+
+export async function getRuleVersion(id: string): Promise<OvRuleVersion | null> {
+  const { rows } = await query('SELECT * FROM overmind_rule_versions WHERE id = $1', [id]);
+  return rows.length > 0 ? rowToRuleVersion(rows[0]) : null;
+}
+
+export async function getLatestRuleVersion(category: string): Promise<OvRuleVersion | null> {
+  const { rows } = await query(
+    'SELECT * FROM overmind_rule_versions WHERE category = $1 ORDER BY version DESC LIMIT 1',
+    [category]
+  );
+  return rows.length > 0 ? rowToRuleVersion(rows[0]) : null;
+}
+
+/** Snapshot all rules in a category for versioning */
+export async function snapshotRuleCategory(category: string, changeType: string, changedBy?: string, reason?: string): Promise<OvRuleVersion> {
+  const rules = await listRules(category);
+  return createRuleVersion({
+    category,
+    snapshot: rules,
+    change_type: changeType,
+    changed_by: changedBy,
+    reason,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Deploy History
+// ---------------------------------------------------------------------------
+
+export interface OvDeployRecord {
+  id: string;
+  version: number;
+  change_type: string;
+  files_changed: any[];
+  reason: string | null;
+  conversation_id: string | null;
+  build_output: string | null;
+  deploy_status: string;
+  health_check: any;
+  requested_by: string;
+  created_at: Date;
+  rolled_back_at: Date | null;
+}
+
+function rowToDeployRecord(row: any): OvDeployRecord {
+  return {
+    id: row.id,
+    version: row.version,
+    change_type: row.change_type,
+    files_changed: typeof row.files_changed === 'string' ? JSON.parse(row.files_changed) : row.files_changed,
+    reason: row.reason,
+    conversation_id: row.conversation_id,
+    build_output: row.build_output,
+    deploy_status: row.deploy_status,
+    health_check: typeof row.health_check === 'string' ? JSON.parse(row.health_check) : row.health_check,
+    requested_by: row.requested_by,
+    created_at: row.created_at,
+    rolled_back_at: row.rolled_back_at,
+  };
+}
+
+export async function createDeployRecord(data: {
+  change_type: string;
+  files_changed: any[];
+  reason?: string;
+  requested_by?: string;
+}): Promise<OvDeployRecord> {
+  const { rows: maxRows } = await query('SELECT COALESCE(MAX(version), 0) as max_ver FROM overmind_deploy_history', []);
+  const nextVersion = (maxRows[0]?.max_ver || 0) + 1;
+  const { rows } = await query(
+    `INSERT INTO overmind_deploy_history (version, change_type, files_changed, reason, requested_by)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [nextVersion, data.change_type, JSON.stringify(data.files_changed), data.reason || null, data.requested_by || 'beau']
+  );
+  return rowToDeployRecord(rows[0]);
+}
+
+export async function updateDeployRecord(id: string, updates: Partial<OvDeployRecord>): Promise<OvDeployRecord | null> {
+  const setClauses: string[] = [];
+  const params: any[] = [];
+  let paramIdx = 1;
+
+  if (updates.deploy_status !== undefined) { setClauses.push(`deploy_status = $${paramIdx++}`); params.push(updates.deploy_status); }
+  if (updates.build_output !== undefined) { setClauses.push(`build_output = $${paramIdx++}`); params.push(updates.build_output); }
+  if (updates.health_check !== undefined) { setClauses.push(`health_check = $${paramIdx++}`); params.push(JSON.stringify(updates.health_check)); }
+  if (updates.rolled_back_at !== undefined) { setClauses.push(`rolled_back_at = $${paramIdx++}`); params.push(updates.rolled_back_at); }
+
+  if (setClauses.length === 0) return null;
+  params.push(id);
+  const { rows } = await query(`UPDATE overmind_deploy_history SET ${setClauses.join(', ')} WHERE id = $${paramIdx} RETURNING *`, params);
+  return rows.length > 0 ? rowToDeployRecord(rows[0]) : null;
+}
+
+export async function listDeployRecords(limit: number = 50): Promise<OvDeployRecord[]> {
+  const { rows } = await query('SELECT * FROM overmind_deploy_history ORDER BY created_at DESC LIMIT $1', [limit]);
+  return rows.map(rowToDeployRecord);
+}
+
+// ---------------------------------------------------------------------------
+// Health Events
+// ---------------------------------------------------------------------------
+
+export interface OvHealthEvent {
+  id: string;
+  event_type: string;
+  severity: string;
+  source: string;
+  message: string;
+  metadata: any;
+  created_at: Date;
+}
+
+function rowToHealthEvent(row: any): OvHealthEvent {
+  return {
+    id: row.id,
+    event_type: row.event_type,
+    severity: row.severity,
+    source: row.source,
+    message: row.message,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+    created_at: row.created_at,
+  };
+}
+
+export async function logHealthEvent(data: {
+  event_type: string;
+  severity?: string;
+  source?: string;
+  message: string;
+  metadata?: any;
+}): Promise<OvHealthEvent> {
+  const { rows } = await query(
+    `INSERT INTO overmind_health_events (event_type, severity, source, message, metadata)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [data.event_type, data.severity || 'info', data.source || 'orchestrator', data.message, JSON.stringify(data.metadata || {})]
+  );
+  return rowToHealthEvent(rows[0]);
+}
+
+export async function listHealthEvents(limit: number = 100, severity?: string): Promise<OvHealthEvent[]> {
+  let sql = 'SELECT * FROM overmind_health_events';
+  const params: any[] = [];
+  if (severity) { params.push(severity); sql += ' WHERE severity = $1'; }
+  sql += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
+  params.push(limit);
+  const { rows } = await query(sql, params);
+  return rows.map(rowToHealthEvent);
+}
+
+// ---------------------------------------------------------------------------
 // Migration
 // ---------------------------------------------------------------------------
 

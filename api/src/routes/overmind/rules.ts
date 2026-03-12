@@ -49,6 +49,7 @@ rulesRouter.post('/rules', async (req: Request, res: Response) => {
       scope: scope || 'global',
     });
     invalidateRulesCache();
+    await db.snapshotRuleCategory(category, 'updated', 'user', `Upserted ${category}.${key}`);
     res.status(201).json(rule);
   } catch (err) {
     res.status(500).json({ error: `Failed to save rule: ${err}` });
@@ -115,6 +116,11 @@ rulesRouter.post('/rules/preset/:name', async (req: Request, res: Response) => {
       results.push(saved);
     }
     invalidateRulesCache();
+    // Snapshot all affected categories
+    const affectedCategories = [...new Set(preset.map(r => r.category))];
+    for (const cat of affectedCategories) {
+      await db.snapshotRuleCategory(cat, 'preset', 'user', `Applied ${presetName} preset`);
+    }
     res.json({ applied: true, preset: presetName, rules: results, count: results.length });
   } catch (err) {
     res.status(500).json({ error: `Failed to apply preset: ${err}` });
@@ -169,6 +175,10 @@ rulesRouter.post('/rules/seed', async (_req: Request, res: Response) => {
       results.push(saved);
     }
     invalidateRulesCache();
+    const seedCategories = [...new Set(DEFAULT_RULES.map(r => r.category))];
+    for (const cat of seedCategories) {
+      await db.snapshotRuleCategory(cat, 'seed', 'system', 'Initial seed');
+    }
     res.json({ seeded: true, rules: results, count: results.length });
   } catch (err) {
     res.status(500).json({ error: `Failed to seed rules: ${err}` });
@@ -197,6 +207,7 @@ rulesRouter.post('/rules/:id', async (req: Request, res: Response) => {
 
     const saved = await db.upsertRule(merged);
     invalidateRulesCache();
+    await db.snapshotRuleCategory(merged.category, 'updated', 'user', `Updated rule ${id}`);
     res.json(saved);
   } catch (err) {
     res.status(500).json({ error: `Failed to update rule: ${err}` });
@@ -209,9 +220,14 @@ rulesRouter.delete('/rules/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id);
 
   try {
+    // Look up rule before deleting to get its category for snapshotting
+    const ruleToDelete = await db.getRule(id);
+    if (!ruleToDelete) return notFound(res, 'Rule');
+
     const deleted = await db.deleteRule(id);
     if (!deleted) return notFound(res, 'Rule');
     invalidateRulesCache();
+    await db.snapshotRuleCategory(ruleToDelete.category, 'deleted', 'user', `Deleted rule ${id}`);
     res.json({ deleted: true, id });
   } catch (err) {
     res.status(500).json({ error: `Failed to delete rule: ${err}` });

@@ -13,9 +13,10 @@ import { FleetView } from './FleetView';
 import { JobsView } from './JobsView';
 import { RulesView } from './RulesView';
 import { SystemView } from './SystemView';
+import { DeployHistory } from './DeployHistory';
 import { useOvermindSocket } from '@/lib/useOvermindSocket';
 
-type OvTab = 'fleet' | 'jobs' | 'rules' | 'system';
+type OvTab = 'fleet' | 'jobs' | 'rules' | 'deploys' | 'system';
 
 export function Overmind() {
   const [activeTab, setActiveTab] = useState<OvTab>('fleet');
@@ -30,6 +31,7 @@ export function Overmind() {
     { id: 'fleet', label: 'Fleet', icon: '🖥' },
     { id: 'jobs', label: 'Jobs', icon: '📋' },
     { id: 'rules', label: 'Rules', icon: '📏' },
+    { id: 'deploys', label: 'Deploys', icon: '🚀' },
     { id: 'system', label: 'System', icon: '⚙' },
   ];
 
@@ -88,6 +90,7 @@ export function Overmind() {
         {activeTab === 'fleet' && <FleetView lastEvent={lastEvent} />}
         {activeTab === 'jobs' && <JobsView lastEvent={lastEvent} />}
         {activeTab === 'rules' && <RulesView lastEvent={lastEvent} />}
+        {activeTab === 'deploys' && <DeployHistory />}
         {activeTab === 'system' && <SystemView lastEvent={lastEvent} />}
       </div>
     </div>

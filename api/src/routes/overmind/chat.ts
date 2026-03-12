@@ -25,6 +25,7 @@ import { pushEvent } from '../../services/overmind/event-bridge';
 import { logActivity } from '../../services/activity-broadcaster';
 import { query } from '../../services/database';
 import { badRequest } from './helpers';
+import { classifyChange, explainClassification } from '../../services/change-classifier';
 
 export const chatRouter = Router();
 
@@ -109,6 +110,27 @@ async function buildOvermindContext(): Promise<string> {
   parts.push('## OVERMIND — You are the Sovereign Stack Orchestrator');
   parts.push('You are the Overmind brain. All user communication flows through you.');
   parts.push('You manage fleet workers, enforce policies, and coordinate tasks.');
+
+  // 2. Rule Advisor capability
+  parts.push('\n\n## RULE ADVISOR MODE');
+  parts.push('When the user discusses rules, preferences, workflows, or how things should be done:');
+  parts.push('1. Parse their intent into concrete rule key/value pairs');
+  parts.push('2. Show a preview table of proposed changes (category, key, value)');
+  parts.push('3. Explain WHY you recommend specific values');
+  parts.push('4. Ask for confirmation before applying ("Say apply to save these")');
+  parts.push('5. On confirmation, call the rules API and report the version number');
+  parts.push('');
+  parts.push('## CHANGE CLASSIFICATION');
+  parts.push('You can handle TWO types of changes:');
+  parts.push('**Track A (Config):** Rule/setting changes → instant, no rebuild. Examples:');
+  parts.push('  - "Change iteration to 5" → update iteration.min_iterations rule');
+  parts.push('  - "Add 60fps rule for motion graphics" → create motion_graphics.frame_rate rule');
+  parts.push('  - "Use Opus for architecture" → update agent.model_tier rule');
+  parts.push('**Track B (Code):** Requires source code changes → rebuild + redeploy. Examples:');
+  parts.push('  - "Add a new tab" → new React component + route');
+  parts.push('  - "Add webhook support" → new API endpoint + handler');
+  parts.push('When unsure, tell the user: "This could be a config change (instant) or code change (rebuild). Which do you prefer?"');
+  parts.push('For Track B, describe the change plan and ask for approval before executing.');
 
   // 2. Policy headers (dynamic rules from DB)
   try {
@@ -197,6 +219,9 @@ chatRouter.post('/chat', async (req: Request, res: Response) => {
       // Non-critical — use defaults
     }
 
+    // Classify the change type (Track A config vs Track B code)
+    const classification = classifyChange(message);
+
     // Emit decision header so the UI can show what the Overmind is doing
     sendSSE({
       type: 'decision',
@@ -206,6 +231,9 @@ chatRouter.post('/chat', async (req: Request, res: Response) => {
       rules_count: activeRulesList.length,
       iteration_config: iterationConfig,
       skills_loaded: [],
+      change_track: classification.track,
+      change_confidence: classification.confidence,
+      change_risk: classification.risk_level,
       timestamp: new Date().toISOString(),
     });
 
@@ -340,6 +368,19 @@ chatRouter.post('/chat', async (req: Request, res: Response) => {
   }
 
   res.end();
+});
+
+// ── POST /chat/classify — Classify a change request ─────────
+
+chatRouter.post('/chat/classify', async (req: Request, res: Response) => {
+  const { message } = req.body || {};
+  if (!message) return badRequest(res, 'message is required');
+
+  const result = classifyChange(message);
+  res.json({
+    ...result,
+    explanation: explainClassification(result),
+  });
 });
 
 // ── GET /chat/conversations — List recent conversations ────

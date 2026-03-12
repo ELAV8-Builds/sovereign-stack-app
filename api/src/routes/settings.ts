@@ -42,7 +42,7 @@ settingsRouter.get('/', async (_req: Request, res: Response) => {
     res.json({ settings });
   } catch {
     // Return defaults if DB is down
-    res.json({ settings: getDefaultSettings() });
+    res.json({ settings: [] });
   }
 });
 
@@ -311,14 +311,3 @@ settingsRouter.get('/vault/available', async (_req: Request, res: Response) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════
-
-function getDefaultSettings() {
-  return [
-    { key: 'agent.name', value: 'Sovereign', encrypted: false },
-    { key: 'agent.model', value: 'coder', encrypted: false },
-    { key: 'communication.whatsapp.enabled', value: 'false', encrypted: false },
-    { key: 'communication.slack.enabled', value: 'false', encrypted: false },
-    { key: 'system.theme', value: 'dark', encrypted: false },
-  ];
-}

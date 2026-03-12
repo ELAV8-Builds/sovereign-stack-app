@@ -401,6 +401,69 @@ CREATE INDEX IF NOT EXISTS idx_overmind_checkpoints_job_id
 CREATE INDEX IF NOT EXISTS idx_overmind_checkpoints_created_at
     ON overmind_checkpoints(created_at DESC);
 
+-- --------------------------------------------------------
+-- 15. overmind_rule_versions — Audit trail for rule changes
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS overmind_rule_versions (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    version         INTEGER     NOT NULL,
+    category        TEXT        NOT NULL,
+    snapshot        JSONB       NOT NULL,
+    change_type     TEXT        NOT NULL DEFAULT 'updated',
+    changed_by      TEXT        NOT NULL DEFAULT 'system',
+    reason          TEXT,
+    conversation_id TEXT,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overmind_rule_versions_category
+    ON overmind_rule_versions(category, version DESC);
+CREATE INDEX IF NOT EXISTS idx_overmind_rule_versions_created_at
+    ON overmind_rule_versions(created_at DESC);
+
+-- --------------------------------------------------------
+-- 16. overmind_deploy_history — Self-modification audit trail
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS overmind_deploy_history (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    version         INTEGER     NOT NULL,
+    change_type     TEXT        NOT NULL CHECK (change_type IN ('frontend', 'backend', 'both')),
+    files_changed   JSONB       NOT NULL DEFAULT '[]',
+    reason          TEXT,
+    conversation_id TEXT,
+    build_output    TEXT,
+    deploy_status   TEXT        NOT NULL DEFAULT 'pending' CHECK (deploy_status IN ('pending', 'building', 'deploying', 'success', 'failed', 'rolled_back')),
+    health_check    JSONB,
+    requested_by    TEXT        DEFAULT 'beau',
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    rolled_back_at  TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_overmind_deploy_history_status
+    ON overmind_deploy_history(deploy_status);
+CREATE INDEX IF NOT EXISTS idx_overmind_deploy_history_created_at
+    ON overmind_deploy_history(created_at DESC);
+
+-- --------------------------------------------------------
+-- 17. overmind_health_events — System health event log
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS overmind_health_events (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_type      TEXT        NOT NULL,
+    severity        TEXT        NOT NULL DEFAULT 'info' CHECK (severity IN ('info', 'warn', 'error', 'critical')),
+    source          TEXT        NOT NULL DEFAULT 'orchestrator',
+    message         TEXT        NOT NULL,
+    metadata        JSONB       DEFAULT '{}',
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overmind_health_events_type
+    ON overmind_health_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_overmind_health_events_severity
+    ON overmind_health_events(severity);
+CREATE INDEX IF NOT EXISTS idx_overmind_health_events_created_at
+    ON overmind_health_events(created_at DESC);
+
 -- ============================================================
 -- Migration complete.
 -- ============================================================

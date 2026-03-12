@@ -101,21 +101,6 @@ export async function speakText(
   return URL.createObjectURL(audioBlob);
 }
 
-// ── List voices ──────────────────────────────────────────
-
-export async function listVoices(): Promise<VoiceInfo[]> {
-  try {
-    const res = await fetch(`${API_BASE}/voices`, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.voices || [];
-  } catch {
-    return [];
-  }
-}
-
 // ── Audio Recording Helper ───────────────────────────────
 
 /**

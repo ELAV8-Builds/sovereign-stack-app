@@ -265,6 +265,91 @@ export async function seedDefaultRules(): Promise<{
   return apiPost('/overmind/rules/seed');
 }
 
+// ─── Rule Versions API ─────────────────────────────────────────
+
+export interface OvRuleVersion {
+  id: string;
+  version: number;
+  category: string;
+  snapshot: OvRule[];
+  change_type: string;
+  changed_by: string;
+  reason: string | null;
+  conversation_id: string | null;
+  created_at: string;
+}
+
+export async function getRuleVersions(category?: string): Promise<OvRuleVersion[]> {
+  const params = category ? `?category=${encodeURIComponent(category)}` : '';
+  const data = await apiGet<{ versions: OvRuleVersion[] }>(`/overmind/versions${params}`);
+  return data?.versions || [];
+}
+
+export async function getRuleVersion(id: string): Promise<OvRuleVersion | null> {
+  return apiGet<OvRuleVersion>(`/overmind/versions/${id}`);
+}
+
+export async function rollbackRules(versionId: string): Promise<{
+  rolled_back: boolean;
+  category: string;
+  restored_version: number;
+  rules: OvRule[];
+  count: number;
+}> {
+  return apiPost('/overmind/versions/rollback', { version_id: versionId });
+}
+
+export async function diffRuleVersions(v1: string, v2: string): Promise<{
+  v1: { id: string; version: number; category: string; created_at: string };
+  v2: { id: string; version: number; category: string; created_at: string };
+  diff: { added: OvRule[]; removed: OvRule[]; changed: any[] };
+}> {
+  const data = await apiGet<any>(`/overmind/versions/diff/${v1}/${v2}`);
+  return data || { v1: {}, v2: {}, diff: { added: [], removed: [], changed: [] } };
+}
+
+// ─── Deploy History API ────────────────────────────────────────
+
+export interface OvDeployRecord {
+  id: string;
+  version: number;
+  change_type: string;
+  files_changed: Array<{ path: string; diff_summary?: string }>;
+  reason: string | null;
+  build_output: string | null;
+  deploy_status: string;
+  health_check: any;
+  requested_by: string;
+  created_at: string;
+  rolled_back_at: string | null;
+}
+
+export async function getDeployHistory(): Promise<OvDeployRecord[]> {
+  const data = await apiGet<{ deploys: OvDeployRecord[] }>('/overmind/deploys');
+  return data?.deploys || [];
+}
+
+// ─── Health Events API ─────────────────────────────────────────
+
+export interface OvHealthEvent {
+  id: string;
+  event_type: string;
+  severity: string;
+  source: string;
+  message: string;
+  metadata: any;
+  created_at: string;
+}
+
+export async function getHealthEvents(limit?: number, severity?: string): Promise<OvHealthEvent[]> {
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  if (severity) params.set('severity', severity);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const data = await apiGet<{ events: OvHealthEvent[] }>(`/overmind/health-events${qs}`);
+  return data?.events || [];
+}
+
 // ─── System API ─────────────────────────────────────────────────
 
 export async function getOrchestratorStatus(): Promise<OrchestratorStatus | null> {
