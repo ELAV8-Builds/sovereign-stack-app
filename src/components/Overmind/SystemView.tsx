@@ -184,24 +184,100 @@ export function SystemView({ lastEvent }: SystemViewProps) {
         )}
       </div>
 
-      {/* Active Rules */}
+      {/* Self-Healing Status */}
+      <div className="border border-white/[0.06] rounded-xl bg-slate-900/50 p-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Self-Healing</h3>
+
+        {/* Overall system health indicator */}
+        <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-slate-800/30">
+          <div className={`w-3 h-3 rounded-full ${
+            orch?.running && !safety?.circuit_breaker_open
+              ? 'bg-emerald-400 animate-pulse'
+              : safety?.circuit_breaker_open
+                ? 'bg-red-400 animate-pulse'
+                : 'bg-amber-400'
+          }`} />
+          <div>
+            <p className={`text-sm font-medium ${
+              orch?.running && !safety?.circuit_breaker_open
+                ? 'text-emerald-400'
+                : safety?.circuit_breaker_open
+                  ? 'text-red-400'
+                  : 'text-amber-400'
+            }`}>
+              {orch?.running && !safety?.circuit_breaker_open
+                ? 'System Healthy'
+                : safety?.circuit_breaker_open
+                  ? 'System Needs Attention'
+                  : 'System Recovering'}
+            </p>
+            <p className="text-[10px] text-slate-600">
+              {orch?.running
+                ? 'Orchestrator loop active — monitoring workers and enforcing rules'
+                : 'Orchestrator not running — self-healing is offline'}
+            </p>
+          </div>
+        </div>
+
+        {/* Context Warden Thresholds */}
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <div className="rounded-lg bg-slate-800/30 p-2.5 text-center">
+            <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">Warn</p>
+            <p className="text-lg font-bold text-yellow-400">65%</p>
+            <p className="text-[9px] text-slate-600">Deprioritize</p>
+          </div>
+          <div className="rounded-lg bg-slate-800/30 p-2.5 text-center">
+            <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">Checkpoint</p>
+            <p className="text-lg font-bold text-amber-400">75%</p>
+            <p className="text-[9px] text-slate-600">Save & Continue</p>
+          </div>
+          <div className="rounded-lg bg-slate-800/30 p-2.5 text-center">
+            <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">Restart</p>
+            <p className="text-lg font-bold text-red-400">85%</p>
+            <p className="text-[9px] text-slate-600">Force Reset</p>
+          </div>
+        </div>
+
+        <div className="space-y-1.5 text-[11px]">
+          <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-800/20">
+            <span className="text-slate-500">Worker health sweep</span>
+            <span className={orch?.running ? 'text-emerald-400' : 'text-slate-600'}>
+              {orch?.running ? `Every ${(orch?.tick_interval_ms || 15000) / 1000}s` : 'Inactive'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-800/20">
+            <span className="text-slate-500">Unhealthy after</span>
+            <span className="text-slate-400">90s no heartbeat</span>
+          </div>
+          <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-800/20">
+            <span className="text-slate-500">Quarantine after</span>
+            <span className="text-slate-400">300s no heartbeat</span>
+          </div>
+          <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-800/20">
+            <span className="text-slate-500">Circuit breaker trips after</span>
+            <span className="text-slate-400">3 consecutive failures</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Active Rules Summary (compact — full management in Rules tab) */}
       <div className="border border-white/[0.06] rounded-xl bg-slate-900/50 p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
             Rules Engine
           </h3>
           <span className="text-[10px] text-slate-600">
-            {rules.filter((r) => r.enabled).length} active / {rules.length} total
+            {rules.filter((r) => r.enabled).length} active / {rules.length} total — manage in Rules tab
           </span>
         </div>
 
         {rules.length === 0 ? (
           <p className="text-[11px] text-slate-600 py-2">
-            No rules configured. The orchestrator uses default policies.
+            No rules configured. Go to the Rules tab to seed defaults or create custom rules.
           </p>
         ) : (
           <div className="space-y-1.5">
-            {rules.slice(0, 15).map((rule) => (
+            {rules.slice(0, 8).map((rule) => (
               <div
                 key={rule.id}
                 className="flex items-center justify-between py-1.5 px-2.5 rounded bg-slate-800/30"
@@ -222,6 +298,11 @@ export function SystemView({ lastEvent }: SystemViewProps) {
                 </div>
               </div>
             ))}
+            {rules.length > 8 && (
+              <p className="text-[10px] text-slate-600 text-center pt-1">
+                +{rules.length - 8} more — see Rules tab
+              </p>
+            )}
           </div>
         )}
       </div>

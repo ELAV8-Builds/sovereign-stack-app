@@ -11,10 +11,11 @@
 import { useState } from 'react';
 import { FleetView } from './FleetView';
 import { JobsView } from './JobsView';
+import { RulesView } from './RulesView';
 import { SystemView } from './SystemView';
 import { useOvermindSocket } from '@/lib/useOvermindSocket';
 
-type OvTab = 'fleet' | 'jobs' | 'system';
+type OvTab = 'fleet' | 'jobs' | 'rules' | 'system';
 
 export function Overmind() {
   const [activeTab, setActiveTab] = useState<OvTab>('fleet');
@@ -28,6 +29,7 @@ export function Overmind() {
   const tabs: { id: OvTab; label: string; icon: string }[] = [
     { id: 'fleet', label: 'Fleet', icon: '🖥' },
     { id: 'jobs', label: 'Jobs', icon: '📋' },
+    { id: 'rules', label: 'Rules', icon: '📏' },
     { id: 'system', label: 'System', icon: '⚙' },
   ];
 
@@ -85,6 +87,7 @@ export function Overmind() {
       <div className="flex-1 overflow-auto">
         {activeTab === 'fleet' && <FleetView lastEvent={lastEvent} />}
         {activeTab === 'jobs' && <JobsView lastEvent={lastEvent} />}
+        {activeTab === 'rules' && <RulesView lastEvent={lastEvent} />}
         {activeTab === 'system' && <SystemView lastEvent={lastEvent} />}
       </div>
     </div>

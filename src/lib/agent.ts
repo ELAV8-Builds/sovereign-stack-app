@@ -22,8 +22,18 @@ export interface AgentToolCall {
   duration_ms?: number;
 }
 
+export interface AgentDecision {
+  agent: string;
+  model: string;
+  rules_applied: string[];
+  rules_count: number;
+  iteration_config: { min: number; max: number };
+  skills_loaded: string[];
+  timestamp: string;
+}
+
 export interface AgentEvent {
-  type: 'status' | 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'done';
+  type: 'status' | 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'done' | 'decision';
   // status
   iteration?: number;
   max_iterations?: number;
@@ -38,9 +48,18 @@ export interface AgentEvent {
   duration_ms?: number;
   // done
   iterations?: number;
+  // decision
+  agent?: string;
+  model?: string;
+  rules_applied?: string[];
+  rules_count?: number;
+  iteration_config?: { min: number; max: number };
+  skills_loaded?: string[];
+  timestamp?: string;
 }
 
 export interface AgentCallbacks {
+  onDecision?: (decision: AgentDecision) => void;
   onStatus?: (iteration: number, maxIterations: number) => void;
   onThinking?: (text: string) => void;
   onToolCall?: (id: string, tool: string, input: Record<string, unknown>) => void;
@@ -148,6 +167,18 @@ export async function chatWithAgent(
         }
 
         switch (event.type) {
+          case 'decision':
+            callbacks.onDecision?.({
+              agent: event.agent || 'Overmind',
+              model: event.model || 'coder',
+              rules_applied: event.rules_applied || [],
+              rules_count: event.rules_count || 0,
+              iteration_config: event.iteration_config || { min: 2, max: 5 },
+              skills_loaded: event.skills_loaded || [],
+              timestamp: event.timestamp || new Date().toISOString(),
+            });
+            break;
+
           case 'status':
             callbacks.onStatus?.(event.iteration || 0, event.max_iterations || 20);
             break;

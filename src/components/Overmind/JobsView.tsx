@@ -15,6 +15,7 @@ interface JobsViewProps {
 export function JobsView({ lastEvent }: JobsViewProps) {
   const [jobs, setJobs] = useState<OvJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const data = await getOvJobs();
@@ -101,40 +102,113 @@ export function JobsView({ lastEvent }: JobsViewProps) {
         <div className="space-y-2">
           {jobs.map((job) => {
             const sc = statusConfig[job.status] || statusConfig.pending;
+            const isExpanded = expandedJob === job.id;
+            const isActive = ['pending', 'planning', 'running'].includes(job.status);
+
             return (
               <div
                 key={job.id}
-                className="border border-white/[0.06] rounded-xl bg-slate-900/50 px-4 py-3"
+                className="border border-white/[0.06] rounded-xl bg-slate-900/50 overflow-hidden"
               >
-                <div className="flex items-start justify-between">
+                <div
+                  className="flex items-start justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                  onClick={() => setExpandedJob(isExpanded ? null : job.id)}
+                >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${sc.bg} ${sc.color}`}>
                         {sc.label}
                       </span>
                       <span className="text-[10px] text-slate-600">{formatTimeAgo(job.created_at)}</span>
+                      {isActive && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                      )}
                     </div>
                     <h3 className="text-sm font-medium text-white truncate">{job.title}</h3>
-                    {job.description && (
-                      <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{job.description}</p>
+                    {!isExpanded && job.description && (
+                      <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{job.description}</p>
                     )}
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-600">
-                      <span>Source: {job.source}</span>
-                      <span>By: {job.created_by}</span>
-                      <span className="font-mono">{job.id.slice(0, 8)}</span>
-                    </div>
                   </div>
 
-                  {/* Cancel button for active jobs */}
-                  {['pending', 'planning', 'running'].includes(job.status) && (
-                    <button
-                      onClick={() => handleCancel(job.id, job.title)}
-                      className="ml-3 px-2.5 py-1 rounded-lg text-[11px] text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    {isActive && (
+                      <button
+                        onClick={() => handleCancel(job.id, job.title)}
+                        className="px-2.5 py-1 rounded-lg text-[11px] text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <span className="text-slate-600 text-[11px]">{isExpanded ? '▾' : '▸'}</span>
+                  </div>
                 </div>
+
+                {/* Expanded detail panel */}
+                {isExpanded && (
+                  <div className="border-t border-white/[0.06] px-4 py-3 bg-slate-950/50 space-y-3">
+                    {/* Full description */}
+                    {job.description && (
+                      <div>
+                        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">Description</p>
+                        <p className="text-[11px] text-slate-400">{job.description}</p>
+                      </div>
+                    )}
+
+                    {/* Job metadata */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div>
+                        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Source</p>
+                        <p className="text-[11px] text-slate-400">{job.source}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Created By</p>
+                        <p className="text-[11px] text-slate-400">{job.created_by}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Job ID</p>
+                        <p className="text-[11px] text-slate-400 font-mono">{job.id}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Created</p>
+                        <p className="text-[11px] text-slate-400">{new Date(job.created_at).toLocaleString()}</p>
+                      </div>
+                    </div>
+
+                    {/* Status timeline */}
+                    <div>
+                      <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Timeline</p>
+                      <div className="flex items-center gap-1">
+                        {['pending', 'planning', 'running', 'completed'].map((step, i) => {
+                          const statusOrder = ['pending', 'planning', 'running', 'needs_review', 'completed'];
+                          const currentIdx = statusOrder.indexOf(job.status);
+                          const stepIdx = statusOrder.indexOf(step);
+                          const isCompleted = stepIdx < currentIdx;
+                          const isCurrent = step === job.status;
+                          const isFailed = job.status === 'failed';
+
+                          return (
+                            <div key={step} className="flex items-center gap-1">
+                              <div className={`w-2 h-2 rounded-full ${
+                                isFailed && isCurrent ? 'bg-red-400' :
+                                isCurrent ? 'bg-blue-400 animate-pulse' :
+                                isCompleted ? 'bg-emerald-400' :
+                                'bg-slate-700'
+                              }`} />
+                              <span className={`text-[10px] ${
+                                isCurrent ? 'text-white font-medium' :
+                                isCompleted ? 'text-slate-400' :
+                                'text-slate-600'
+                              }`}>
+                                {step}
+                              </span>
+                              {i < 3 && <span className="text-slate-700 text-[10px]">→</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

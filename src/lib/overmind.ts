@@ -234,6 +234,37 @@ export async function updateOvRule(id: string, updates: Partial<OvRule>): Promis
   return apiPost<OvRule>(`/overmind/rules/${id}`, updates);
 }
 
+export async function createOvRule(rule: {
+  category: string;
+  key: string;
+  value: unknown;
+  enabled?: boolean;
+  scope?: string;
+}): Promise<OvRule> {
+  return apiPost<OvRule>('/overmind/rules', rule);
+}
+
+export async function deleteOvRule(id: string): Promise<void> {
+  return apiDelete(`/overmind/rules/${id}`);
+}
+
+export async function applyRulePreset(name: 'strict' | 'normal' | 'permissive'): Promise<{
+  applied: boolean;
+  preset: string;
+  rules: OvRule[];
+  count: number;
+}> {
+  return apiPost(`/overmind/rules/preset/${name}`);
+}
+
+export async function seedDefaultRules(): Promise<{
+  seeded: boolean;
+  rules: OvRule[];
+  count: number;
+}> {
+  return apiPost('/overmind/rules/seed');
+}
+
 // ─── System API ─────────────────────────────────────────────────
 
 export async function getOrchestratorStatus(): Promise<OrchestratorStatus | null> {

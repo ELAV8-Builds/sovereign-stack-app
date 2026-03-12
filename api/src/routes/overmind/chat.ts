@@ -183,6 +183,32 @@ chatRouter.post('/chat', async (req: Request, res: Response) => {
     sendSSE({ type: 'status', stage: 'loading_context' });
     const overmindContext = await buildOvermindContext();
 
+    // Load active rules for decision header
+    let activeRulesList: Array<{ category: string; key: string; value: unknown }> = [];
+    let iterationConfig = { min: 2, max: 5 };
+    try {
+      const rules = await getActiveRules('global');
+      activeRulesList = rules.map(r => ({ category: r.category, key: r.key, value: r.value }));
+      const minIter = rules.find(r => r.key === 'min_iterations');
+      const maxIter = rules.find(r => r.key === 'max_iterations');
+      if (minIter) iterationConfig.min = Number(minIter.value) || 2;
+      if (maxIter) iterationConfig.max = Number(maxIter.value) || 5;
+    } catch {
+      // Non-critical — use defaults
+    }
+
+    // Emit decision header so the UI can show what the Overmind is doing
+    sendSSE({
+      type: 'decision',
+      agent: 'Overmind',
+      model: model || 'coder',
+      rules_applied: activeRulesList.map(r => `${r.category}.${r.key}`),
+      rules_count: activeRulesList.length,
+      iteration_config: iterationConfig,
+      skills_loaded: [],
+      timestamp: new Date().toISOString(),
+    });
+
     // Retrieve relevant memory for this conversation
     let memoryContext = '';
     try {

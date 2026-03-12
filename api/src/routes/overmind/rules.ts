@@ -3,6 +3,9 @@
  *
  * Endpoints for listing, creating, updating, and deleting rules,
  * plus preset application for quick configuration.
+ *
+ * IMPORTANT: Route order matters! Specific paths (seed, preset) must
+ * come before parameterized paths (:id) to avoid route conflicts.
  */
 import { Router, Request, Response } from 'express';
 import * as db from '../../services/overmind/db';
@@ -45,7 +48,6 @@ rulesRouter.post('/rules', async (req: Request, res: Response) => {
       enabled: enabled !== false,
       scope: scope || 'global',
     });
-    // Invalidate orchestrator's rules cache so the next tick uses fresh values
     invalidateRulesCache();
     res.status(201).json(rule);
   } catch (err) {
@@ -53,22 +55,8 @@ rulesRouter.post('/rules', async (req: Request, res: Response) => {
   }
 });
 
-// ── DELETE /rules/:id — Delete a specific rule ───────────────────────
-
-rulesRouter.delete('/rules/:id', async (req: Request, res: Response) => {
-  const id = String(req.params.id);
-
-  try {
-    const deleted = await db.deleteRule(id);
-    if (!deleted) return notFound(res, 'Rule');
-    invalidateRulesCache();
-    res.json({ deleted: true, id });
-  } catch (err) {
-    res.status(500).json({ error: `Failed to delete rule: ${err}` });
-  }
-});
-
 // ── POST /rules/preset/:name — Apply a preset configuration ─────────
+// MUST come before /rules/:id to avoid route conflicts
 
 const PRESETS: Record<string, Array<{ category: string; key: string; value: any }>> = {
   strict: [
@@ -126,11 +114,107 @@ rulesRouter.post('/rules/preset/:name', async (req: Request, res: Response) => {
       });
       results.push(saved);
     }
-    // Invalidate orchestrator's rules cache so new preset takes effect immediately
     invalidateRulesCache();
     res.json({ applied: true, preset: presetName, rules: results, count: results.length });
   } catch (err) {
     res.status(500).json({ error: `Failed to apply preset: ${err}` });
+  }
+});
+
+// ── POST /rules/seed — Seed default build rules ──────────────────────
+// MUST come before /rules/:id to avoid route conflicts
+
+const DEFAULT_RULES: Array<{ category: string; key: string; value: any; scope?: string }> = [
+  // Build rules (B1-B11)
+  { category: 'build', key: 'no_external_api_in_browser', value: 'NEVER call external APIs from browser JS. Use proxy/backend.' },
+  { category: 'build', key: 'wire_env_to_app', value: 'Verify app actually READS env vars, not just .env file creation.' },
+  { category: 'build', key: 'async_feedback_required', value: 'Every async action: loading state, disabled during op, toast on success/error.' },
+  { category: 'build', key: 'no_mock_data', value: 'Show real empty states, error messages, loading states. Never mock data.' },
+  { category: 'build', key: 'verify_before_done', value: 'Run tsc --noEmit + npm run build after EVERY change before reporting done.' },
+  { category: 'build', key: 'tiered_verification', value: { small: 'tsc + build + spot-check', medium: '+ runtime + env + feedback', large: '+ full test + no-mock audit' } },
+  { category: 'build', key: 'test_docker_builds', value: 'Missing package-lock.json breaks npm ci in Docker.' },
+  { category: 'build', key: 'warn_vite_keys', value: 'VITE_* keys are embedded in JS bundles. Use serverless functions.' },
+  { category: 'build', key: 'api_preflight', value: 'Search current docs, verify installed version, test call before wiring.' },
+  { category: 'build', key: 'port_reservation', value: 'Reserved: 3000, 3001, 3100, 4000, 4010, 5173, 5175, 5180, 5432, 6379, 8090, 11434, 18789' },
+  { category: 'build', key: 'always_validate', value: 'Run full build chain after changes. Fix errors and re-validate.' },
+  // Iteration rules
+  { category: 'iteration', key: 'min_iterations', value: 2 },
+  { category: 'iteration', key: 'max_iterations', value: 5 },
+  { category: 'iteration', key: 'always_iterate', value: true },
+  // Quality rules
+  { category: 'quality', key: 'cleanup_threshold', value: 'medium' },
+  { category: 'quality', key: 'max_file_lines', value: 300 },
+  // Context warden rules
+  { category: 'context', key: 'warn_threshold', value: 65 },
+  { category: 'context', key: 'checkpoint_threshold', value: 75 },
+  { category: 'context', key: 'restart_threshold', value: 85 },
+];
+
+rulesRouter.post('/rules/seed', async (_req: Request, res: Response) => {
+  try {
+    const existing = await db.listRules();
+    if (existing.length > 0) {
+      return res.json({ seeded: false, message: 'Rules already exist. Use presets to override.', rules: existing, count: existing.length });
+    }
+
+    const results = [];
+    for (const rule of DEFAULT_RULES) {
+      const saved = await db.upsertRule({
+        category: rule.category,
+        key: rule.key,
+        value: rule.value,
+        enabled: true,
+        scope: rule.scope || 'global',
+      });
+      results.push(saved);
+    }
+    invalidateRulesCache();
+    res.json({ seeded: true, rules: results, count: results.length });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to seed rules: ${err}` });
+  }
+});
+
+// ── POST /rules/:id — Update a specific rule ────────────────────────
+// MUST come AFTER all /rules/specific paths to avoid conflicts
+
+rulesRouter.post('/rules/:id', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const updates = req.body || {};
+
+  try {
+    const existing = await db.listRules();
+    const rule = existing.find(r => r.id === id);
+    if (!rule) return notFound(res, 'Rule');
+
+    const merged = {
+      category: updates.category || rule.category,
+      key: updates.key || rule.key,
+      value: updates.value !== undefined ? updates.value : rule.value,
+      enabled: updates.enabled !== undefined ? updates.enabled : rule.enabled,
+      scope: updates.scope || rule.scope,
+    };
+
+    const saved = await db.upsertRule(merged);
+    invalidateRulesCache();
+    res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: `Failed to update rule: ${err}` });
+  }
+});
+
+// ── DELETE /rules/:id — Delete a specific rule ───────────────────────
+
+rulesRouter.delete('/rules/:id', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+
+  try {
+    const deleted = await db.deleteRule(id);
+    if (!deleted) return notFound(res, 'Rule');
+    invalidateRulesCache();
+    res.json({ deleted: true, id });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to delete rule: ${err}` });
   }
 });
 

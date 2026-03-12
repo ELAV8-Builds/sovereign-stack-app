@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { safeInvoke, localGet, localSet } from "@/lib/tauri";
 import { checkLLMHealth } from "@/lib/ai";
-import { chatWithAgent, type AgentToolCall } from "@/lib/agent";
+import { chatWithAgent, type AgentToolCall, type AgentDecision } from "@/lib/agent";
 import {
   createConversation,
   getConversation,
@@ -49,6 +49,7 @@ export function ChatInterface() {
   const [agentIterationMap, setAgentIterationMap] = useState<Record<string, number>>({});
   const [agentToolCallsMap, setAgentToolCallsMap] = useState<Record<string, AgentToolCall[]>>({});
   const [agentThinkingMap, setAgentThinkingMap] = useState<Record<string, string>>({});
+  const [agentDecisionMap, setAgentDecisionMap] = useState<Record<string, AgentDecision | null>>({});
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const abortControllerMapRef = useRef<Record<string, AbortController>>({});
   const [showLaunchAgent, setShowLaunchAgent] = useState(false);
@@ -81,6 +82,7 @@ export function ChatInterface() {
   const agentIteration = agentIterationMap[convKey] ?? 0;
   const agentToolCalls = agentToolCallsMap[convKey] ?? [];
   const agentThinking = agentThinkingMap[convKey] ?? "";
+  const agentDecision = agentDecisionMap[convKey] ?? null;
   const anyAgentRunning = Object.values(agentRunningMap).some(Boolean);
   const messages = messagesMap[convKey] ?? [];
   const isTyping = isTypingMap[convKey] ?? false;
@@ -297,6 +299,7 @@ export function ChatInterface() {
     setAgentIterationMap((prev) => ({ ...prev, [sendKey]: 0 }));
     setAgentToolCallsMap((prev) => ({ ...prev, [sendKey]: [] }));
     setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: "" }));
+    setAgentDecisionMap((prev) => ({ ...prev, [sendKey]: null }));
 
     const abortController = new AbortController();
     abortControllerMapRef.current[sendKey] = abortController;
@@ -313,6 +316,7 @@ export function ChatInterface() {
 
     try {
       await chatWithAgent(trimmed, effectiveConvId, history, {
+        onDecision: (decision) => { setAgentDecisionMap((prev) => ({ ...prev, [sendKey]: decision })); },
         onStatus: (iteration) => { resetStaleTimer(); setAgentIterationMap((prev) => ({ ...prev, [sendKey]: iteration })); },
         onThinking: (text) => { resetStaleTimer(); thinkingText += text; setAgentThinkingMap((prev) => ({ ...prev, [sendKey]: thinkingText })); },
         onToolCall: (id, tool, input) => {
@@ -555,6 +559,11 @@ export function ChatInterface() {
           </div>
         )}
 
+        {/* Decision banner — shows Overmind's routing decision */}
+        {agentDecision && agentRunning && (
+          <DecisionBanner decision={agentDecision} />
+        )}
+
         <MessageList
           ref={messagesContainerRef}
           scrollAnchorRef={messagesEndRef}
@@ -595,6 +604,79 @@ export function ChatInterface() {
 
       {/* Sound Settings Modal */}
       {showSoundSettings && <SoundSettings onClose={() => setShowSoundSettings(false)} />}
+    </div>
+  );
+}
+
+// ─── Decision Banner ─────────────────────────────────────────────────
+
+function DecisionBanner({ decision }: { decision: AgentDecision }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const modelLabel: Record<string, string> = {
+    coder: 'Sonnet',
+    medium: 'Sonnet',
+    heavy: 'Opus',
+    light: 'Haiku',
+    trivial: 'Haiku',
+    creative: 'Gemini',
+    codex: 'GPT-5.2',
+    critic: 'GPT-5.2',
+  };
+
+  return (
+    <div className="px-4 py-1.5 border-b border-indigo-800/30 bg-indigo-900/10">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2 text-[11px]">
+          <span className="text-indigo-400">🧠</span>
+          <span className="text-indigo-300 font-medium">{decision.agent}</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-slate-400">{modelLabel[decision.model] || decision.model}</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-slate-400">{decision.rules_count} rules</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-slate-400">{decision.iteration_config.min}-{decision.iteration_config.max} iterations</span>
+        </div>
+        <span className="text-[10px] text-slate-600">{expanded ? '▾' : '▸'}</span>
+      </button>
+
+      {expanded && (
+        <div className="mt-2 pb-1 space-y-1.5">
+          {decision.rules_applied.length > 0 && (
+            <div>
+              <span className="text-[10px] text-slate-600 uppercase tracking-wider">Rules:</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {decision.rules_applied.map((rule) => (
+                  <span
+                    key={rule}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/30 text-indigo-400 border border-indigo-800/30"
+                  >
+                    {rule}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {decision.skills_loaded.length > 0 && (
+            <div>
+              <span className="text-[10px] text-slate-600 uppercase tracking-wider">Skills:</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {decision.skills_loaded.map((skill) => (
+                  <span
+                    key={skill}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800/30"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

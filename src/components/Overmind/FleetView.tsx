@@ -268,10 +268,36 @@ export function FleetView({ lastEvent }: FleetViewProps) {
                           </span>
                         )}
                       </div>
+                      {/* Context usage bar */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              worker.context_usage >= 85 ? 'bg-red-500' :
+                              worker.context_usage >= 75 ? 'bg-amber-500' :
+                              worker.context_usage >= 65 ? 'bg-yellow-500' :
+                              'bg-emerald-500'
+                            }`}
+                            style={{ width: `${Math.min(worker.context_usage, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-600">{worker.context_usage}%</span>
+                      </div>
                       <div className="flex items-center gap-3 mt-0.5 text-[11px] text-slate-500">
-                        <span>Context: {worker.context_usage}%</span>
                         <span>Load: {worker.current_load}/{worker.max_load}</span>
-                        <span>Heartbeat: {formatTimeAgo(worker.last_heartbeat)}</span>
+                        {/* Heartbeat with age-based warning */}
+                        {(() => {
+                          const hbAge = worker.last_heartbeat
+                            ? (Date.now() - new Date(worker.last_heartbeat).getTime()) / 1000
+                            : Infinity;
+                          const hbColor = hbAge > 90 ? 'text-red-400' : hbAge > 60 ? 'text-amber-400' : 'text-slate-500';
+                          return (
+                            <span className={hbColor}>
+                              {hbAge > 90 ? '⚠ ' : hbAge > 60 ? '⚡ ' : ''}
+                              Heartbeat: {formatTimeAgo(worker.last_heartbeat)}
+                            </span>
+                          );
+                        })()}
                         {worker.capabilities.length > 0 && (
                           <span className="text-slate-600">
                             {worker.capabilities.slice(0, 3).join(', ')}
