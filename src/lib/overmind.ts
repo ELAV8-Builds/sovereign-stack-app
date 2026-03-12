@@ -372,3 +372,88 @@ export async function getSlackListenerStatus(): Promise<SlackListenerStatus | nu
 export async function reconnectSlackListener(): Promise<SlackListenerStatus> {
   return apiPost<SlackListenerStatus>('/overmind/slack/reconnect');
 }
+
+// ─── Fleet Machines API ─────────────────────────────────────────
+
+export interface FleetMachine {
+  id: string;
+  fleet_name: string;
+  machine_name: string;
+  endpoint: string;
+  status: 'healthy' | 'unhealthy' | 'offline' | 'suspended';
+  capabilities: string[];
+  max_workers: number;
+  region: string;
+  allowed_ips: string[];
+  metadata: Record<string, unknown>;
+  last_heartbeat: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FleetDashboard {
+  total: number;
+  healthy: number;
+  unhealthy: number;
+  offline: number;
+  suspended: number;
+  total_workers_active: number;
+  total_workers_capacity: number;
+  fleets: FleetMachine[];
+}
+
+export interface FleetAuditEntry {
+  id: string;
+  fleet_id: string | null;
+  direction: 'inbound' | 'outbound';
+  method: string;
+  path: string;
+  status_code: number | null;
+  request_id: string | null;
+  ip_address: string | null;
+  error: string | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export async function getFleetMachines(): Promise<FleetMachine[]> {
+  const data = await apiGet<{ fleets: FleetMachine[] }>('/overmind/fleets');
+  return data?.fleets || [];
+}
+
+export async function getFleetDashboard(): Promise<FleetDashboard | null> {
+  return apiGet<FleetDashboard>('/overmind/fleets/dashboard');
+}
+
+export async function removeFleetMachine(id: string): Promise<void> {
+  await apiDelete(`/overmind/fleets/${id}`);
+}
+
+export async function updateFleetMachineStatus(id: string, status: string): Promise<void> {
+  await fetch(`${API}/overmind/fleets/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function rotateFleetKey(id: string): Promise<{ credentials: { api_key: string } }> {
+  return apiPost<{ credentials: { api_key: string } }>(`/overmind/fleets/${id}/rotate-key`);
+}
+
+export async function unsuspendFleet(id: string): Promise<{ fleet: FleetMachine; credentials: { api_key: string; hmac_secret: string } }> {
+  return apiPost<{ fleet: FleetMachine; credentials: { api_key: string; hmac_secret: string } }>(`/overmind/fleets/${id}/unsuspend`);
+}
+
+export async function getFleetAuditLog(limit?: number, fleetId?: string): Promise<FleetAuditEntry[]> {
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  if (fleetId) params.set('fleet_id', fleetId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const data = await apiGet<{ audit: FleetAuditEntry[] }>(`/overmind/fleets/audit${qs}`);
+  return data?.audit || [];
+}
+
+export async function sweepFleetMachines(): Promise<void> {
+  await apiPost('/overmind/fleets/sweep');
+}

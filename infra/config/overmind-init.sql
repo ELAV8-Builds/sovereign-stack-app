@@ -464,6 +464,54 @@ CREATE INDEX IF NOT EXISTS idx_overmind_health_events_severity
 CREATE INDEX IF NOT EXISTS idx_overmind_health_events_created_at
     ON overmind_health_events(created_at DESC);
 
+-- --------------------------------------------------------
+-- 18. overmind_fleets — Multi-machine fleet registry
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS overmind_fleets (
+    id                UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    fleet_name        TEXT        NOT NULL UNIQUE,
+    machine_name      TEXT        NOT NULL,
+    endpoint          TEXT        NOT NULL UNIQUE,
+    api_key_hash      TEXT        NOT NULL DEFAULT '',
+    hmac_secret_hash  TEXT        NOT NULL DEFAULT '',
+    status            TEXT        NOT NULL DEFAULT 'healthy' CHECK (status IN ('healthy', 'unhealthy', 'offline', 'suspended')),
+    capabilities      JSONB       NOT NULL DEFAULT '[]',
+    max_workers       INT         NOT NULL DEFAULT 3,
+    region            TEXT        NOT NULL DEFAULT 'local',
+    allowed_ips       TEXT[]      DEFAULT '{}',
+    last_heartbeat    TIMESTAMPTZ,
+    metadata          JSONB       NOT NULL DEFAULT '{}',
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overmind_fleets_status ON overmind_fleets(status);
+CREATE INDEX IF NOT EXISTS idx_overmind_fleets_region ON overmind_fleets(region);
+
+-- --------------------------------------------------------
+-- 19. overmind_fleet_audit — Cross-fleet security audit log
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS overmind_fleet_audit (
+    id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    fleet_id    UUID        REFERENCES overmind_fleets(id) ON DELETE SET NULL,
+    direction   TEXT        NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    method      TEXT        NOT NULL,
+    path        TEXT        NOT NULL,
+    status_code INT,
+    request_id  TEXT,
+    ip_address  TEXT,
+    user_agent  TEXT,
+    error       TEXT,
+    latency_ms  INT,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overmind_fleet_audit_fleet ON overmind_fleet_audit(fleet_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_overmind_fleet_audit_time ON overmind_fleet_audit(created_at DESC);
+
+-- Add fleet_id FK to existing workers table
+ALTER TABLE overmind_fleet ADD COLUMN IF NOT EXISTS fleet_id UUID REFERENCES overmind_fleets(id) ON DELETE SET NULL;
+
 -- ============================================================
 -- Migration complete.
 -- ============================================================

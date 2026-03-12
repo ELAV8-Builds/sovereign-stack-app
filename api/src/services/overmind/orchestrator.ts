@@ -20,6 +20,7 @@
 import { orchestratorTick, publishEvent } from './agent-contract';
 import { contextWardenTick, type WardenTickResult } from './context-warden';
 import { sweepFleetHealth } from './fleet';
+import { sweepFleetMachineHealth } from './fleets';
 import { isSlackConfigured } from './slack';
 import * as db from './db';
 import type { OvRule } from './db';
@@ -141,11 +142,20 @@ async function runTick(): Promise<void> {
       console.warn('[overmind] Fleet sweep error (non-critical):', fleetErr);
     }
 
+    // Fleet MACHINE health sweep (heartbeat-based machine status)
+    let fleetMachineResult: { healthy: number; unhealthy: number; offline: number; suspended: number } | null = null;
+    try {
+      fleetMachineResult = await sweepFleetMachineHealth();
+    } catch (machErr) {
+      console.warn('[overmind] Fleet machine sweep error (non-critical):', machErr);
+    }
+
     const elapsed = Date.now() - tickStart;
     lastTickResult = {
       ...result,
       warden: wardenResult,
       fleet: fleetResult,
+      fleet_machines: fleetMachineResult,
       tick_number: tickCount,
       elapsed_ms: elapsed,
       timestamp: new Date().toISOString(),
@@ -167,6 +177,9 @@ async function runTick(): Promise<void> {
     if (wardenResult && wardenResult.restarts_sent > 0) {
       console.log(`[overmind] Tick #${tickCount}: Context warden triggered ${wardenResult.restarts_sent} restart(s)`);
     }
+    if (fleetMachineResult && (fleetMachineResult.offline > 0 || fleetMachineResult.suspended > 0)) {
+      console.log(`[overmind] Tick #${tickCount}: Fleet machines — ${fleetMachineResult.offline} offline, ${fleetMachineResult.suspended} suspended`);
+    }
 
     // Every 100 ticks (~25 minutes at 15s interval), publish a health report
     if (tickCount % 100 === 0) {
@@ -176,6 +189,7 @@ async function runTick(): Promise<void> {
         ...result,
         warden: wardenResult,
         fleet: fleetResult,
+        fleet_machines: fleetMachineResult,
       });
     }
   } catch (err) {

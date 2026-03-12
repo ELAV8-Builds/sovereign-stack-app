@@ -111,6 +111,7 @@ export interface OvFleetWorker {
   context_usage: number;
   last_heartbeat: Date | null;
   metadata: Record<string, unknown>;
+  fleet_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -149,6 +150,7 @@ function rowToWorker(row: any): OvFleetWorker {
     context_usage: parseFloat(row.context_usage) || 0,
     last_heartbeat: row.last_heartbeat || null,
     metadata: row.metadata || {},
+    fleet_id: row.fleet_id || null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -373,12 +375,17 @@ export async function sweepFleetHealth(): Promise<{
  * 5. If context > 65%, deprioritize (context-warm)
  */
 export async function findBestWorker(
-  requiredCapabilities?: string[]
+  requiredCapabilities?: string[],
+  fleetId?: string
 ): Promise<OvFleetWorker | null> {
   const workers = await listWorkers('healthy');
 
   const available = workers
     .filter(w => w.current_load < w.max_load)
+    .filter(w => {
+      if (fleetId) return w.fleet_id === fleetId;
+      return true;
+    })
     .filter(w => {
       if (!requiredCapabilities || requiredCapabilities.length === 0) return true;
       return requiredCapabilities.every(cap => w.capabilities.includes(cap));
