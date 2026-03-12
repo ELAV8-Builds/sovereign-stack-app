@@ -650,7 +650,7 @@ function rowToRule(row: any): OvRule {
     id: row.id,
     category: row.category,
     key: row.key,
-    value: typeof row.value === 'string' ? JSON.parse(row.value) : row.value,
+    value: row.value,
     enabled: row.enabled,
     scope: row.scope,
     created_at: row.created_at,

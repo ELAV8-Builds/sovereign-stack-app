@@ -198,18 +198,28 @@ export function captureRawBody(req: Request, _res: Response, buf: Buffer): void 
 /**
  * Express middleware that verifies admin access for fleet management endpoints.
  * Uses the OVERMIND_ADMIN_TOKEN env var (Bearer token).
- * Admin routes: register, list, delete, rotate, unsuspend, etc.
+ *
+ * Localhost (loopback) requests are trusted — the Tauri app runs on the same
+ * machine so it can manage fleets without embedding a secret in the frontend.
+ * All remote requests must provide the Bearer token.
  */
 export function verifyAdminRequest() {
+  const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
   return (req: Request, res: Response, next: NextFunction): void => {
     const adminToken = process.env.OVERMIND_ADMIN_TOKEN;
 
-    // If no admin token is configured, allow (development mode — log warning once)
     if (!adminToken) {
       if (!(global as any).__fleetAdminWarned) {
         console.warn('[fleet-auth] WARNING: OVERMIND_ADMIN_TOKEN not set — admin endpoints are UNPROTECTED. Set this env var in production!');
         (global as any).__fleetAdminWarned = true;
       }
+      next();
+      return;
+    }
+
+    const clientIp = req.ip || req.socket.remoteAddress || '';
+    if (LOOPBACK.has(clientIp)) {
       next();
       return;
     }
@@ -221,7 +231,6 @@ export function verifyAdminRequest() {
     }
 
     const token = authHeader.slice(7);
-    // Timing-safe comparison for admin token
     const expected = Buffer.from(adminToken, 'utf8');
     const provided = Buffer.from(token, 'utf8');
 
