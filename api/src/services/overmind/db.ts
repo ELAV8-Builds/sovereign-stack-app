@@ -934,7 +934,7 @@ export async function listHealthEvents(limit: number = 100, severity?: string): 
 // ---------------------------------------------------------------------------
 
 export async function runMigration(): Promise<void> {
-  const sqlPath = join(__dirname, '../../../../config/overmind-init.sql');
+  const sqlPath = join(__dirname, '../../../../infra/config/overmind-init.sql');
   const sql = readFileSync(sqlPath, 'utf-8');
   await withClient(async (client) => {
     await client.query(sql);

@@ -5,6 +5,9 @@ import compression from 'compression';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 import { chatRouter } from './routes/chat';
 import { servicesRouter } from './routes/services';
@@ -34,8 +37,6 @@ import { initDatabase } from './services/database';
 import { initRedis } from './services/redis';
 import { initScheduler } from './services/scheduler';
 import { initSlackListener } from './services/slack-listener';
-
-dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 const app = express();
