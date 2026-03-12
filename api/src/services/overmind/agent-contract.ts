@@ -603,7 +603,7 @@ export async function publishEvent(
  * Main orchestrator tick — runs periodically to:
  * 1. Sweep agent health
  * 2. Recover stuck tasks
- * 3. Assign queued tasks to available agents
+ * 3. Assign queued tasks to available agents (local first, then remote fleet)
  * 4. Check for completed jobs
  *
  * Call this every 15-30 seconds.
@@ -612,6 +612,7 @@ export async function orchestratorTick(): Promise<{
   agents: { healthy: number; unhealthy: number; quarantined: number };
   recovered: number;
   assigned: number;
+  dispatched_to_fleet: number;
 }> {
   // 1. Agent health sweep
   const agentHealth = await sweepAgentHealth();
@@ -619,12 +620,33 @@ export async function orchestratorTick(): Promise<{
   // 2. Recover stuck tasks
   const { recovered } = await recoverStuckTasks();
 
-  // 3. Auto-assign queued tasks
+  // 3. Auto-assign queued tasks (local agents first, then remote fleets)
   let assigned = 0;
+  let dispatchedToFleet = 0;
   const queuedTasks = await db.pollTasks('', undefined, 20); // Get up to 20 unassigned tasks
   for (const task of queuedTasks) {
+    // Try local agent first
     const result = await assignTaskToAgent(task.id);
-    if (result.assigned) assigned++;
+    if (result.assigned) {
+      assigned++;
+      continue;
+    }
+
+    // If no local agent available, try dispatching to a remote fleet
+    if (result.reason === 'No available agents') {
+      try {
+        const { dispatchTaskToFleet } = await import('./fleet-dispatcher');
+        const fleetResult = await dispatchTaskToFleet(task.id);
+        if (fleetResult.dispatched) {
+          dispatchedToFleet++;
+          continue;
+        }
+        // If fleet dispatch also fails, task stays queued for next tick
+      } catch (err) {
+        // Fleet dispatch is non-critical — task stays queued
+        console.warn('[agent-contract] Fleet dispatch attempt failed (non-critical):', (err as Error).message);
+      }
+    }
   }
 
   // 4. Check for job completions on all running jobs
@@ -633,5 +655,5 @@ export async function orchestratorTick(): Promise<{
     await checkJobCompletion(job.id);
   }
 
-  return { agents: agentHealth, recovered, assigned };
+  return { agents: agentHealth, recovered, assigned, dispatched_to_fleet: dispatchedToFleet };
 }

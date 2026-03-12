@@ -333,9 +333,10 @@ export async function sweepFleetMachineHealth(): Promise<{
   unhealthy: number;
   offline: number;
   suspended: number;
+  tasks_reassigned: number;
 }> {
   const fleets = await listFleetMachines();
-  const counts = { healthy: 0, unhealthy: 0, offline: 0, suspended: 0 };
+  const counts = { healthy: 0, unhealthy: 0, offline: 0, suspended: 0, tasks_reassigned: 0 };
 
   for (const f of fleets) {
     if (f.status === 'suspended') {
@@ -352,7 +353,16 @@ export async function sweepFleetMachineHealth(): Promise<{
     const elapsed = (Date.now() - new Date(f.last_heartbeat).getTime()) / 1000;
 
     if (elapsed > FLEET_OFFLINE_TIMEOUT_S) {
-      if (f.status !== 'offline') await updateFleetStatus(f.id, 'offline');
+      const wasOnline = f.status !== 'offline';
+      if (wasOnline) {
+        await updateFleetStatus(f.id, 'offline');
+        // Cross-fleet reassignment: re-queue tasks dispatched to this offline fleet
+        const reassigned = await reassignFleetTasks(f.id);
+        counts.tasks_reassigned += reassigned;
+        if (reassigned > 0) {
+          console.log(`[fleets] Reassigned ${reassigned} task(s) from offline fleet ${f.fleet_name}`);
+        }
+      }
       counts.offline++;
     } else if (elapsed > FLEET_UNHEALTHY_TIMEOUT_S) {
       if (f.status !== 'unhealthy') await updateFleetStatus(f.id, 'unhealthy');
@@ -363,6 +373,30 @@ export async function sweepFleetMachineHealth(): Promise<{
   }
 
   return counts;
+}
+
+/**
+ * Reassign tasks that were dispatched to a fleet that went offline.
+ * Resets dispatched_to_fleet metadata and re-queues the task for assignment.
+ */
+async function reassignFleetTasks(fleetId: string): Promise<number> {
+  try {
+    // Find tasks dispatched to this fleet that are still in a running/queued state
+    const { rows } = await query(
+      `UPDATE overmind_tasks SET
+        status = 'queued',
+        metadata = metadata - 'dispatched_to_fleet' - 'fleet_name' - 'dispatched_at',
+        updated_at = NOW()
+       WHERE status IN ('queued', 'running')
+         AND metadata->>'dispatched_to_fleet' = $1
+       RETURNING id`,
+      [fleetId]
+    );
+    return rows.length;
+  } catch (err) {
+    console.warn('[fleets] Task reassignment failed (non-critical):', err);
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------

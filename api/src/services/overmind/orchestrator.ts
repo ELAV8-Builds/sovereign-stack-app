@@ -143,7 +143,7 @@ async function runTick(): Promise<void> {
     }
 
     // Fleet MACHINE health sweep (heartbeat-based machine status)
-    let fleetMachineResult: { healthy: number; unhealthy: number; offline: number; suspended: number } | null = null;
+    let fleetMachineResult: { healthy: number; unhealthy: number; offline: number; suspended: number; tasks_reassigned: number } | null = null;
     try {
       fleetMachineResult = await sweepFleetMachineHealth();
     } catch (machErr) {
@@ -166,7 +166,10 @@ async function runTick(): Promise<void> {
       console.log(`[overmind] Tick #${tickCount}: Recovered ${result.recovered} stuck task(s)`);
     }
     if (result.assigned > 0) {
-      console.log(`[overmind] Tick #${tickCount}: Assigned ${result.assigned} task(s)`);
+      console.log(`[overmind] Tick #${tickCount}: Assigned ${result.assigned} task(s) to local agents`);
+    }
+    if (result.dispatched_to_fleet > 0) {
+      console.log(`[overmind] Tick #${tickCount}: Dispatched ${result.dispatched_to_fleet} task(s) to remote fleet(s)`);
     }
     if (result.agents.quarantined > 0) {
       console.log(`[overmind] Tick #${tickCount}: ${result.agents.quarantined} agent(s) quarantined`);
@@ -179,6 +182,9 @@ async function runTick(): Promise<void> {
     }
     if (fleetMachineResult && (fleetMachineResult.offline > 0 || fleetMachineResult.suspended > 0)) {
       console.log(`[overmind] Tick #${tickCount}: Fleet machines — ${fleetMachineResult.offline} offline, ${fleetMachineResult.suspended} suspended`);
+    }
+    if (fleetMachineResult && fleetMachineResult.tasks_reassigned > 0) {
+      console.log(`[overmind] Tick #${tickCount}: Reassigned ${fleetMachineResult.tasks_reassigned} task(s) from offline fleets`);
     }
 
     // Every 100 ticks (~25 minutes at 15s interval), publish a health report
