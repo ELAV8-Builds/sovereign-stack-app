@@ -21,10 +21,35 @@ export function renderContent(content: string) {
   return renderMarkdown(content);
 }
 
+const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i;
+const WORKSPACE_IMAGE_PATH = /(?:^|\s)(\/workspace\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg))/gim;
+const ABSOLUTE_IMAGE_PATH = /(?:^|\s)(\/Users\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg))/gim;
+
+/**
+ * Pre-process content to convert bare image paths to markdown image syntax.
+ * The agent often outputs `/workspace/path/to/image.png` as plain text
+ * instead of `![image](/workspace/path/to/image.png)`.
+ */
+function convertBareImagePaths(content: string): string {
+  let result = content;
+  result = result.replace(WORKSPACE_IMAGE_PATH, (match, path) => {
+    const leading = match.startsWith(' ') || match.startsWith('\n') ? match[0] : '';
+    const filename = path.split('/').pop()?.replace(/\.[^.]+$/, '') || 'image';
+    return `${leading}![${filename}](${path.trim()})`;
+  });
+  result = result.replace(ABSOLUTE_IMAGE_PATH, (match, path) => {
+    const leading = match.startsWith(' ') || match.startsWith('\n') ? match[0] : '';
+    const filename = path.split('/').pop()?.replace(/\.[^.]+$/, '') || 'image';
+    return `${leading}![${filename}](${path.trim()})`;
+  });
+  return result;
+}
+
 /**
  * Full ReactMarkdown renderer with custom component overrides.
  */
 export function renderMarkdown(content: string) {
+  const processed = convertBareImagePaths(content);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -93,16 +118,21 @@ export function renderMarkdown(content: string) {
             {children}
           </td>
         ),
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 underline transition-colors"
-          >
-            {children}
-          </a>
-        ),
+        a: ({ href, children }) => {
+          if (href && IMAGE_EXTENSIONS.test(href)) {
+            return <InlineImage src={href} alt={String(children) || undefined} />;
+          }
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline transition-colors"
+            >
+              {children}
+            </a>
+          );
+        },
         strong: ({ children }) => (
           <strong className="font-semibold text-white">{children}</strong>
         ),
@@ -120,7 +150,7 @@ export function renderMarkdown(content: string) {
         ),
       }}
     >
-      {content}
+      {processed}
     </ReactMarkdown>
   );
 }
