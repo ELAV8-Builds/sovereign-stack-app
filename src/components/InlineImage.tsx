@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { isTauri } from "@/lib/tauri";
 
 interface InlineImageProps {
   src: string;
@@ -8,18 +6,24 @@ interface InlineImageProps {
 }
 
 /**
- * Inline image component that safely loads local files in Tauri
- * and supports click-to-expand fullscreen view.
+ * Inline image component that loads workspace images through the API
+ * (WKWebView can't load local file:// paths) and supports click-to-expand.
  */
 export function InlineImage({ src, alt = "Image" }: InlineImageProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Convert file:// paths to Tauri-safe URLs
-  const imageSrc = isTauri() && src.startsWith("/workspace")
-    ? convertFileSrc(src)
-    : src;
+  // Route local paths through the backend API.
+  // Agent outputs /workspace/path or /Users/sovereign/workspace/path.
+  let imageSrc = src;
+  if (src.startsWith("/workspace/")) {
+    imageSrc = `/api/sovereign/workspace/${src.slice("/workspace/".length)}`;
+  } else if (src.startsWith("/Users/sovereign/workspace/")) {
+    imageSrc = `/api/sovereign/workspace/${src.slice("/Users/sovereign/workspace/".length)}`;
+  } else if (src.startsWith("/Users/") && /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(src)) {
+    imageSrc = `/api/sovereign/workspace/${src.split("/workspace/").pop() || src}`;
+  }
 
   if (hasError) {
     return (
