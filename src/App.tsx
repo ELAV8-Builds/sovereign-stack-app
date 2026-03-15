@@ -5,13 +5,12 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ChatInterface } from "./components/ChatInterface";
 import { UnifiedDashboard } from "./components/UnifiedDashboard";
 import { OnboardingPopup } from "./components/OnboardingPopup";
-import { Skills } from "./components/Skills";
 import { Overmind } from "./components/Overmind";
 import { Canvas } from "./components/Canvas";
 import Settings from "./pages/Settings";
 import "./App.css";
 
-type Tab = "chat" | "overmind" | "canvas" | "dashboard" | "skills" | "settings";
+type Tab = "chat" | "overmind" | "canvas" | "dashboard" | "settings";
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>("chat");
@@ -44,12 +43,23 @@ function AppContent() {
     return () => window.removeEventListener("restart-onboarding", handler);
   }, []);
 
+  // Listen for cross-tab navigation (e.g., "Create via Chat" from Overmind)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && typeof detail === 'string') {
+        setActiveTab(detail as Tab);
+      }
+    };
+    window.addEventListener("switch-tab", handler);
+    return () => window.removeEventListener("switch-tab", handler);
+  }, []);
+
   const tabIcons: Record<Tab, React.ReactNode> = {
     chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
     overmind: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M12 2a9 9 0 0 1 9 9c0 3.9-3.1 7.1-5.5 9.3L12 23l-3.5-2.7C6.1 18.1 3 14.9 3 11a9 9 0 0 1 9-9z"/><circle cx="12" cy="11" r="3"/></svg>,
     canvas: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>,
     dashboard: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
-    skills: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
     settings: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   };
 
@@ -58,7 +68,6 @@ function AppContent() {
     { id: "overmind", label: "Overmind" },
     { id: "canvas", label: "Canvas" },
     { id: "dashboard", label: "Dashboard" },
-    { id: "skills", label: "Skills" },
     { id: "settings", label: "Settings" },
   ];
 
@@ -130,7 +139,6 @@ function AppContent() {
         {activeTab === "overmind" && <Overmind />}
         {activeTab === "canvas" && <Canvas />}
         {activeTab === "dashboard" && <UnifiedDashboard />}
-        {activeTab === "skills" && <Skills />}
         {activeTab === "settings" && <Settings />}
       </main>
     </div>

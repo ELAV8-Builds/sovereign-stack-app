@@ -10,7 +10,7 @@ export interface QueuedMessage {
 }
 
 export const QUEUE_STORAGE_KEY = "sovereign_chat_queue";
-export const STALE_THRESHOLD_MS = 45_000;
+export const STALE_THRESHOLD_MS = 120_000;
 
 export function loadPersistedQueue(): QueuedMessage[] {
   try {

@@ -43,6 +43,7 @@ export interface ChatCompletionWithToolsOptions {
   tools?: ToolDefinition[];
   temperature?: number;
   max_tokens?: number;
+  abortSignal?: AbortSignal;
 }
 
 export interface ChatCompletionWithToolsResult {
@@ -148,6 +149,8 @@ export async function streamChatCompletion(
 
 // ─── Chat Completion with Tool Calling ──────────────────────────────────
 
+const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes per LLM call — generous for Opus on complex tasks
+
 export async function chatCompletionWithTools(
   options: ChatCompletionWithToolsOptions
 ): Promise<ChatCompletionWithToolsResult> {
@@ -159,7 +162,7 @@ export async function chatCompletionWithTools(
     model,
     messages: options.messages,
     temperature: options.temperature ?? 0.5,
-    max_tokens: options.max_tokens ?? 4096,
+    max_tokens: options.max_tokens ?? 16384,
     stream: false,
   };
 
@@ -168,39 +171,63 @@ export async function chatCompletionWithTools(
     body.tool_choice = 'auto';
   }
 
-  const response = await fetch(`${LITELLM_URL}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${LITELLM_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), LLM_CALL_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const text = await response.text();
-    logActivity('litellm', 'error', `Agent ${model} tier failed: ${response.status}`);
-    throw new Error(`LiteLLM ${model} failed (${response.status}): ${text}`);
+  // If the caller provides an abort signal, wire it into our controller
+  if (options.abortSignal) {
+    if (options.abortSignal.aborted) {
+      clearTimeout(timeoutId);
+      throw new Error('Request aborted by caller');
+    }
+    options.abortSignal.addEventListener('abort', () => timeoutController.abort(), { once: true });
   }
 
-  const data = await response.json() as any;
-  const choice = data.choices?.[0];
+  try {
+    const response = await fetch(`${LITELLM_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LITELLM_KEY}`,
+      },
+      body: JSON.stringify(body),
+      signal: timeoutController.signal,
+    });
 
-  const result: ChatCompletionWithToolsResult = {
-    content: choice?.message?.content || null,
-    tool_calls: choice?.message?.tool_calls || null,
-    finish_reason: choice?.finish_reason || 'stop',
-    usage: data.usage,
-  };
+    if (!response.ok) {
+      const text = await response.text();
+      logActivity('litellm', 'error', `Agent ${model} tier failed: ${response.status}`);
+      throw new Error(`LiteLLM ${model} failed (${response.status}): ${text}`);
+    }
 
-  if (result.tool_calls && result.tool_calls.length > 0) {
-    logActivity('litellm', 'info', `Agent requested ${result.tool_calls.length} tool call(s)`);
-  } else {
-    const len = typeof result.content === 'string' ? result.content.length : 0;
-    logActivity('litellm', 'success', `Agent response received (${len} chars)`);
+    const data = await response.json() as any;
+    const choice = data.choices?.[0];
+
+    const result: ChatCompletionWithToolsResult = {
+      content: choice?.message?.content || null,
+      tool_calls: choice?.message?.tool_calls || null,
+      finish_reason: choice?.finish_reason || 'stop',
+      usage: data.usage,
+    };
+
+    if (result.tool_calls && result.tool_calls.length > 0) {
+      logActivity('litellm', 'info', `Agent requested ${result.tool_calls.length} tool call(s)`);
+    } else {
+      const len = typeof result.content === 'string' ? result.content.length : 0;
+      logActivity('litellm', 'success', `Agent response received (${len} chars)`);
+    }
+
+    return result;
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      const wasCallerAbort = options.abortSignal?.aborted;
+      logActivity('litellm', 'error', `Agent ${model} call ${wasCallerAbort ? 'aborted by caller' : `timed out after ${LLM_CALL_TIMEOUT_MS / 1000}s`}`);
+      throw new Error(wasCallerAbort ? 'LLM request aborted' : `LLM request timed out after ${LLM_CALL_TIMEOUT_MS / 1000}s — the model may be overloaded or the request was too large`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return result;
 }
 
 // Image generation via Gemini through LiteLLM

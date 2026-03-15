@@ -101,6 +101,20 @@ async function start() {
     await runOvermindMigration();
     console.log('✓ Overmind tables initialized');
     initOrchestrator();
+
+    // Register local API as a fleet member so it appears alongside remote fleets
+    try {
+      const { query: dbQuery } = await import('./services/database');
+      await dbQuery(
+        `INSERT INTO overmind_fleet (name, url, status, capabilities, max_load, metadata)
+         VALUES ('sovereign-host', $1, 'healthy', '["code","build","chat"]'::jsonb, 3, '{"type":"local"}'::jsonb)
+         ON CONFLICT (url) DO UPDATE SET status = 'healthy', last_heartbeat = NOW()`,
+        [`http://127.0.0.1:${PORT}`]
+      );
+      console.log('✓ Local API registered as fleet member (sovereign-host)');
+    } catch (regErr) {
+      console.warn('⚠ Local fleet registration failed:', (regErr as Error).message);
+    }
   } catch (e) {
     console.warn('⚠ Overmind migration failed, running in degraded mode:', (e as Error).message);
   }

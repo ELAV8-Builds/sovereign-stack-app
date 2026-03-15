@@ -9,23 +9,14 @@ import {
   type SearchResult,
 } from "@/lib/conversations";
 import {
-  getFleetAgents,
-  deleteFleetAgent,
-  getAgentTasks,
-  type FleetAgent,
-  type AgentJob,
-} from "@/lib/fleet";
-import {
   markConversationRead,
   getUnreadConversationIds,
 } from "@/lib/unread";
-import { playTaskCompleteChime } from "@/lib/notifications";
 
 import type { ConversationSidebarProps } from "./types";
-import { formatRelativeTime, loadCollapsedAgents, saveCollapsedAgents, getAgentColor } from "./types";
+import { formatRelativeTime } from "./types";
 import { ConvItem } from "./ConvItem";
-import { ConversationContextMenu, AgentContextMenu } from "./ContextMenu";
-import { FleetSection } from "./FleetSection";
+import { ConversationContextMenu } from "./ContextMenu";
 
 // ---- Component ---------------------------------------------------------------
 
@@ -33,14 +24,10 @@ export function ConversationSidebar({
   activeConversationId,
   onSelectConversation,
   onNewConversation,
-  onSelectFleetAgent,
-  activeFleetAgentId,
   collapsed,
   onToggleCollapse,
-  onShowLaunchAgent,
 }: ConversationSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [fleetAgents, setFleetAgents] = useState<FleetAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
@@ -48,27 +35,16 @@ export function ConversationSidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [agentContextMenu, setAgentContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(loadCollapsedAgents);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
-  const [agentJobs, setAgentJobs] = useState<Map<string, AgentJob>>(new Map());
-  const [completedAgents, setCompletedAgents] = useState<Set<string>>(new Set());
-  const prevAgentStatusRef = useRef<Map<string, string>>(new Map());
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const editInputRef = useRef<HTMLInputElement>(null);
 
-  // ---- Load conversations + fleet agents ------------------------------------
+  // ---- Load conversations ----------------------------------------------------
 
   const loadData = useCallback(async () => {
     try {
-      const [convs, agents] = await Promise.all([
-        listConversations({ limit: 100 }),
-        getFleetAgents(),
-      ]);
+      const convs = await listConversations({ limit: 100 });
       setConversations(convs);
-      setFleetAgents(agents);
-
-      // Update unread state
       const unread = getUnreadConversationIds(convs);
       setUnreadIds(unread);
     } catch {
@@ -83,62 +59,6 @@ export function ConversationSidebar({
     const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
   }, [loadData]);
-
-  // ---- Poll fleet agent jobs for live status --------------------------------
-
-  useEffect(() => {
-    if (fleetAgents.length === 0) return;
-
-    const pollJobs = async () => {
-      const runningAgents = fleetAgents.filter(a => a.status === "running");
-      if (runningAgents.length === 0) {
-        setAgentJobs(new Map());
-        return;
-      }
-
-      const jobMap = new Map<string, AgentJob>();
-      const prevStatuses = prevAgentStatusRef.current;
-
-      for (const agent of runningAgents) {
-        try {
-          const jobs = await getAgentTasks(agent.id);
-          const activeJob = jobs.find(j => j.status === "running") || jobs[0];
-          if (activeJob) {
-            jobMap.set(agent.id, activeJob);
-
-            // Check for completion transition -> play chime + show checkmark
-            const prevStatus = prevStatuses.get(activeJob.id);
-            if (prevStatus === "running" && activeJob.status === "completed") {
-              if (activeFleetAgentId !== agent.id) {
-                playTaskCompleteChime();
-                toast.success(`${agent.icon} ${agent.name} finished its task`, { duration: 4000 });
-              }
-
-              // Show checkmark for 5 seconds
-              setCompletedAgents(prev => new Set(prev).add(agent.id));
-              setTimeout(() => {
-                setCompletedAgents(prev => {
-                  const next = new Set(prev);
-                  next.delete(agent.id);
-                  return next;
-                });
-              }, 5000);
-            }
-            prevStatuses.set(activeJob.id, activeJob.status);
-          }
-        } catch {
-          // Silent fail for individual agent polling
-        }
-      }
-
-      prevAgentStatusRef.current = prevStatuses;
-      setAgentJobs(jobMap);
-    };
-
-    pollJobs();
-    const interval = setInterval(pollJobs, 5000);
-    return () => clearInterval(interval);
-  }, [fleetAgents, activeFleetAgentId]);
 
   // ---- Search with debounce -------------------------------------------------
 
@@ -185,13 +105,6 @@ export function ConversationSidebar({
     return () => window.removeEventListener("click", handler);
   }, [contextMenu]);
 
-  useEffect(() => {
-    if (!agentContextMenu) return;
-    const handler = () => setAgentContextMenu(null);
-    window.addEventListener("click", handler);
-    return () => window.removeEventListener("click", handler);
-  }, [agentContextMenu]);
-
   // ---- Actions --------------------------------------------------------------
 
   const handleRename = async (id: string) => {
@@ -237,38 +150,14 @@ export function ConversationSidebar({
     }
   };
 
-  const handleDeleteAgent = async (agentId: string) => {
-    try {
-      await deleteFleetAgent(agentId);
-      toast.success("Agent deleted");
-      if (activeFleetAgentId === agentId) {
-        onSelectFleetAgent(null);
-      }
-      await loadData();
-    } catch {
-      toast.error("Failed to delete agent");
-    }
-  };
-
-  const toggleAgentCollapsed = (agentId: string) => {
-    setCollapsedAgents(prev => {
-      const next = new Set(prev);
-      if (next.has(agentId)) next.delete(agentId);
-      else next.add(agentId);
-      saveCollapsedAgents(next);
-      return next;
-    });
-  };
-
-  const handleSelectConv = (convId: string, agentId?: string | null) => {
-    // Mark as read when selecting
+  const handleSelectConv = (convId: string) => {
     markConversationRead(convId);
     setUnreadIds(prev => {
       const next = new Set(prev);
       next.delete(convId);
       return next;
     });
-    onSelectConversation(convId, agentId);
+    onSelectConversation(convId);
   };
 
   const handleMarkRead = (convId: string) => {
@@ -299,77 +188,15 @@ export function ConversationSidebar({
           )}
         </button>
         <button
-          onClick={() => onNewConversation(null)}
+          onClick={() => onNewConversation()}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 transition-all"
           title="New conversation"
         >
           +
         </button>
-        {/* Fleet agent icons */}
-        {fleetAgents.length > 0 && (
-          <div className="border-t border-slate-800 pt-2 mt-1 flex flex-col gap-1">
-            {fleetAgents.map((agent, idx) => {
-              const color = getAgentColor(idx);
-              const agentConvs = conversations.filter(c => c.agent_id === agent.id);
-              const hasUnread = agentConvs.some(c => unreadIds.has(c.id));
-              const isRunning = agent.status === "running";
-              const isCompleted = completedAgents.has(agent.id);
-
-              return (
-                <button
-                  key={agent.id}
-                  onClick={() => {
-                    onSelectFleetAgent(agent);
-                    if (agent.conversation_id) {
-                      handleSelectConv(agent.conversation_id, agent.id);
-                    }
-                  }}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all relative ${
-                    activeFleetAgentId === agent.id
-                      ? "bg-blue-900/40 ring-1 ring-blue-700"
-                      : "hover:bg-slate-800"
-                  }`}
-                  title={agent.name}
-                >
-                  {agent.icon}
-                  {hasUnread && (
-                    <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${color.dot}`} />
-                  )}
-                  {isRunning && (
-                    <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                  )}
-                  {isCompleted && (
-                    <span className="absolute -bottom-0.5 -left-0.5 text-[10px] animate-bounce">✓</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
     );
   }
-
-  // ---- Group conversations by agent -----------------------------------------
-
-  const mainConversations = conversations.filter(c => !c.agent_id);
-  const agentConversationMap = new Map<string, Conversation[]>();
-  for (const conv of conversations) {
-    if (conv.agent_id) {
-      const existing = agentConversationMap.get(conv.agent_id) || [];
-      existing.push(conv);
-      agentConversationMap.set(conv.agent_id, existing);
-    }
-  }
-
-  // ---- Helper: count unread for an agent ------------------------------------
-
-  const countAgentUnread = (agentId: string): number => {
-    const convs = agentConversationMap.get(agentId) || [];
-    return convs.filter(c => unreadIds.has(c.id)).length;
-  };
-
-  const mainUnreadCount = mainConversations.filter(c => unreadIds.has(c.id)).length;
 
   // ---- Render ---------------------------------------------------------------
 
@@ -386,7 +213,7 @@ export function ConversationSidebar({
         </button>
         <span className="text-xs font-medium text-slate-400">Conversations</span>
         <button
-          onClick={() => onNewConversation(activeFleetAgentId)}
+          onClick={() => onNewConversation()}
           className="w-7 h-7 rounded flex items-center justify-center text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 transition-all text-sm"
           title="New conversation"
         >
@@ -447,109 +274,43 @@ export function ConversationSidebar({
             <span className="text-[10px] text-slate-500">Loading...</span>
           </div>
         ) : (
-          <>
-            {/* ---- Main Agent Section ---------------------------------------- */}
-            <div className="mb-1">
-              <div
-                className="flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-slate-800/30 transition-colors rounded-md mx-1"
-                onClick={() => toggleAgentCollapsed("__main__")}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-slate-600 w-3 flex-shrink-0">
-                    {collapsedAgents.has("__main__") ? "▸" : "▾"}
-                  </span>
-                  <span className="text-sm">🤖</span>
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                    Main Agent
-                  </span>
-                  {mainUnreadCount > 0 && (
-                    <span className="ml-1 px-1.5 py-0 rounded-full bg-blue-500/20 text-blue-400 text-[9px] font-bold">
-                      {mainUnreadCount}
-                    </span>
-                  )}
-                </div>
+          <div className="px-2">
+            {conversations.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <p className="text-[10px] text-slate-600">No conversations yet</p>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectFleetAgent(null);
-                    onNewConversation(null);
-                  }}
-                  className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
-                  title="New main conversation"
+                  onClick={() => onNewConversation()}
+                  className="mt-1 text-[10px] text-blue-400 hover:text-blue-300"
                 >
-                  + New
+                  Start a conversation
                 </button>
               </div>
-
-              {!collapsedAgents.has("__main__") && (
-                <>
-                  {mainConversations.length === 0 ? (
-                    <div className="px-3 py-2 text-center">
-                      <p className="text-[10px] text-slate-600">No conversations yet</p>
-                      <button
-                        onClick={() => onNewConversation(null)}
-                        className="mt-1 text-[10px] text-blue-400 hover:text-blue-300"
-                      >
-                        Start a conversation →
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="px-2">
-                      {mainConversations.slice(0, 10).map((conv) => (
-                        <div key={conv.id} className="mb-0.5">
-                          <ConvItem
-                            conv={conv}
-                            agentId={null}
-                            isUnread={unreadIds.has(conv.id)}
-                            isActive={activeConversationId === conv.id}
-                            isEditing={editingId === conv.id}
-                            editTitle={editTitle}
-                            editInputRef={editInputRef}
-                            onEditTitleChange={setEditTitle}
-                            onRename={handleRename}
-                            onCancelEdit={() => setEditingId(null)}
-                            onSelect={handleSelectConv}
-                            onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
-                          />
-                        </div>
-                      ))}
-                      {mainConversations.length > 10 && (
-                        <div className="text-[9px] text-slate-600 text-center py-1">
-                          +{mainConversations.length - 10} more
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* ---- Fleet Agent Sections -------------------------------------- */}
-            <FleetSection
-              fleetAgents={fleetAgents}
-              agentConversationMap={agentConversationMap}
-              activeFleetAgentId={activeFleetAgentId}
-              activeConversationId={activeConversationId}
-              collapsedAgents={collapsedAgents}
-              completedAgents={completedAgents}
-              unreadIds={unreadIds}
-              agentJobs={agentJobs}
-              editingId={editingId}
-              editTitle={editTitle}
-              editInputRef={editInputRef}
-              countAgentUnread={countAgentUnread}
-              onEditTitleChange={setEditTitle}
-              onRename={handleRename}
-              onCancelEdit={() => setEditingId(null)}
-              onSelectConv={handleSelectConv}
-              onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
-              onAgentContextMenu={(id, x, y) => setAgentContextMenu({ id, x, y })}
-              toggleAgentCollapsed={toggleAgentCollapsed}
-              onSelectFleetAgent={onSelectFleetAgent}
-              onNewConversation={onNewConversation}
-              onShowLaunchAgent={onShowLaunchAgent}
-            />
-          </>
+            ) : (
+              conversations.slice(0, 50).map((conv) => (
+                <div key={conv.id} className="mb-0.5">
+                  <ConvItem
+                    conv={conv}
+                    agentId={null}
+                    isUnread={unreadIds.has(conv.id)}
+                    isActive={activeConversationId === conv.id}
+                    isEditing={editingId === conv.id}
+                    editTitle={editTitle}
+                    editInputRef={editInputRef}
+                    onEditTitleChange={setEditTitle}
+                    onRename={handleRename}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSelect={handleSelectConv}
+                    onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
+                  />
+                </div>
+              ))
+            )}
+            {conversations.length > 50 && (
+              <div className="text-[9px] text-slate-600 text-center py-1">
+                +{conversations.length - 50} more
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -564,18 +325,6 @@ export function ConversationSidebar({
           onArchive={handleArchive}
           onDelete={handleDelete}
           onMarkRead={handleMarkRead}
-        />
-      )}
-
-      {/* Agent context menu */}
-      {agentContextMenu && (
-        <AgentContextMenu
-          agentContextMenu={agentContextMenu}
-          fleetAgents={fleetAgents}
-          onClose={() => setAgentContextMenu(null)}
-          onSelectFleetAgent={onSelectFleetAgent}
-          onNewConversation={onNewConversation}
-          onDeleteAgent={handleDeleteAgent}
         />
       )}
     </div>

@@ -135,6 +135,19 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return res.json();
 }
 
+async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `Request failed (${res.status})` }));
+    throw new Error(err.error || err.message || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
 async function apiDelete(path: string): Promise<void> {
   const res = await fetch(`${API}${path}`, { method: 'DELETE' });
   if (!res.ok) {
@@ -456,4 +469,144 @@ export async function getFleetAuditLog(limit?: number, fleetId?: string): Promis
 
 export async function sweepFleetMachines(): Promise<void> {
   await apiPost('/overmind/fleets/sweep');
+}
+
+// ─── Playbooks (Recipes) API ─────────────────────────────────────
+
+export interface PlaybookPassConfig {
+  iteration: number;
+  type: 'full_build' | 'focused_fixes' | 'resistance_check' | 'deep_remediation';
+  disclosure: number;
+  tier: string;
+  skill_name?: string;
+  custom_prompt?: string;
+}
+
+export interface OvPlaybook {
+  id: string;
+  name: string;
+  description: string;
+  target_type: string;
+  tools: string[];
+  rule_overrides: Record<string, unknown>;
+  steps: Array<{ type: string; skill_name?: string; disclosure_level?: number; llm_tier?: string; config?: Record<string, unknown> }>;
+  iteration_config: { min: number; max: number; passes?: PlaybookPassConfig[]; escalation_mode?: string };
+  cleanup_profile: string;
+  llm_tiers: Record<string, string>;
+  fleet_preference: string;
+  skills: string[];
+  model: string;
+  usage_count: number;
+  last_used_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePlaybookInput {
+  name: string;
+  description?: string;
+  target_type: string;
+  tools?: string[];
+  rule_overrides?: Record<string, unknown>;
+  steps?: OvPlaybook['steps'];
+  iteration_config?: OvPlaybook['iteration_config'];
+  cleanup_profile?: string;
+  llm_tiers?: Record<string, string>;
+  fleet_preference?: string;
+  skills?: string[];
+  model?: string;
+}
+
+export async function getPlaybooks(targetType?: string): Promise<OvPlaybook[]> {
+  const params = targetType ? `?target_type=${encodeURIComponent(targetType)}` : '';
+  const data = await apiGet<{ recipes: OvPlaybook[] }>(`/overmind/recipes${params}`);
+  return data?.recipes || [];
+}
+
+export async function getPlaybook(id: string): Promise<OvPlaybook | null> {
+  return apiGet<OvPlaybook>(`/overmind/recipes/${id}`);
+}
+
+export async function createPlaybook(input: CreatePlaybookInput): Promise<OvPlaybook> {
+  return apiPost<OvPlaybook>('/overmind/recipes', input);
+}
+
+export async function updatePlaybook(id: string, updates: Partial<CreatePlaybookInput>): Promise<OvPlaybook> {
+  return apiPatch<OvPlaybook>(`/overmind/recipes/${id}`, updates);
+}
+
+export async function deletePlaybook(id: string): Promise<void> {
+  return apiDelete(`/overmind/recipes/${id}`);
+}
+
+export async function seedPlaybooks(): Promise<{ seeded: boolean; count: number; recipes: OvPlaybook[] }> {
+  return apiPost('/overmind/recipes/seed');
+}
+
+// ─── Overmind Skills API ─────────────────────────────────────────
+
+export interface OvSkillInfo {
+  name: string;
+  category: string;
+  version: string;
+  target_type: string;
+  description: string;
+}
+
+export async function getOvSkills(): Promise<OvSkillInfo[]> {
+  const data = await apiGet<{ skills: OvSkillInfo[] }>('/overmind/skills');
+  return data?.skills || [];
+}
+
+// ─── Conversations API ──────────────────────────────────────────
+
+export interface OvConversation {
+  id: string;
+  source: string;
+  created_at: string;
+  first_message: string | null;
+  message_count: number;
+}
+
+export async function getRecentConversations(limit = 10): Promise<OvConversation[]> {
+  const data = await apiGet<{ conversations: OvConversation[] }>(`/overmind/chat/conversations?limit=${limit}`);
+  return data?.conversations || [];
+}
+
+// ─── Chained Job API ─────────────────────────────────────────────
+
+export async function createChainedJob(prompt: string, recipeIds: string[]): Promise<unknown> {
+  return apiPost('/overmind/jobs/plan-chain', { prompt, recipe_ids: recipeIds, source: 'web' });
+}
+
+// ─── File Upload ─────────────────────────────────────────────────
+
+export interface UploadedFile {
+  filename: string;
+  original_name: string;
+  size: number;
+  mimetype: string;
+  url: string;
+  preview_url: string;
+}
+
+export async function uploadFiles(files: File[]): Promise<UploadedFile[]> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('files', file);
+  }
+
+  const response = await fetch(`${API}/overmind/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.text().catch(() => 'Upload failed');
+    throw new Error(err);
+  }
+
+  const data = await response.json();
+  return data.files;
 }

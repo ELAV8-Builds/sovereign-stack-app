@@ -22,6 +22,15 @@ export interface AgentToolCall {
   duration_ms?: number;
 }
 
+export interface MatchedPlaybook {
+  id: string;
+  name: string;
+  model: string;
+  iteration_config: { min: number; max: number };
+  skills: string[];
+  fleet_preference: string;
+}
+
 export interface AgentDecision {
   agent: string;
   model: string;
@@ -29,11 +38,21 @@ export interface AgentDecision {
   rules_count: number;
   iteration_config: { min: number; max: number };
   skills_loaded: string[];
+  matched_playbook?: MatchedPlaybook | null;
+  change_track?: 'A' | 'B';
+  change_confidence?: number;
+  change_risk?: string;
   timestamp: string;
 }
 
+export interface JobHandoff {
+  job_id: string;
+  title: string;
+  conversation_id?: string;
+}
+
 export interface AgentEvent {
-  type: 'status' | 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'done' | 'decision';
+  type: 'status' | 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'done' | 'decision' | 'job_handoff' | 'playbook_chain_suggestion' | 'heartbeat';
   // status
   iteration?: number;
   max_iterations?: number;
@@ -55,7 +74,40 @@ export interface AgentEvent {
   rules_count?: number;
   iteration_config?: { min: number; max: number };
   skills_loaded?: string[];
+  matched_playbook?: MatchedPlaybook | null;
+  change_track?: 'A' | 'B';
+  change_confidence?: number;
+  change_risk?: string;
   timestamp?: string;
+  // job_handoff
+  job_id?: string;
+  title?: string;
+  conversation_id?: string;
+  matched_recipes?: Array<{ id: string; name: string }>;
+  phases?: Array<{ recipe_id: string; recipe_name: string; sequence: number; status: string }>;
+  // playbook_chain_suggestion
+  chain?: Array<{ id: string; name: string; reason: string; sequence: number; target_type?: string; model?: string; iteration_config?: { min: number; max: number }; steps?: string[]; skills?: string[] }>;
+  reasoning?: string;
+  auto_approved?: boolean;
+  // heartbeat
+  ts?: number;
+  elapsed_ms?: number;
+}
+
+export interface PlaybookChainSuggestion {
+  chain: Array<{
+    id: string;
+    name: string;
+    reason: string;
+    sequence: number;
+    target_type?: string;
+    model?: string;
+    iteration_config?: { min: number; max: number };
+    steps?: string[];
+    skills?: string[];
+  }>;
+  reasoning: string;
+  auto_approved: boolean;
 }
 
 export interface AgentCallbacks {
@@ -67,6 +119,9 @@ export interface AgentCallbacks {
   onMessage?: (text: string) => void;
   onError?: (error: string) => void;
   onDone?: (iterations: number, durationMs: number) => void;
+  onJobHandoff?: (handoff: JobHandoff) => void;
+  onPlaybookChain?: (suggestion: PlaybookChainSuggestion) => void;
+  onHeartbeat?: (elapsedMs: number) => void;
 }
 
 // ─── Agent Chat Function ─────────────────────────────────────────────────
@@ -74,17 +129,11 @@ export interface AgentCallbacks {
 /**
  * Send a message to the Overmind chat gateway and stream back results via SSE.
  * The Overmind enriches the request with policies, fleet status, and memory
- * before proxying to the agent engine.
- *
- * For fleet worker direct access, set overrides.fleet_agent_id to bypass Overmind.
+ * before proxying to the agent engine. All chat routes through Overmind.
  */
 export interface AgentOverrides {
-  /** Custom system prompt (Fleet Mode agents) */
-  system_prompt?: string;
   /** Model tier override */
   model?: string;
-  /** Fleet agent ID — when set, routes DIRECTLY to agent (bypasses Overmind) */
-  fleet_agent_id?: string;
 }
 
 export async function chatWithAgent(
@@ -93,36 +142,51 @@ export async function chatWithAgent(
   history: { role: 'user' | 'assistant'; content: string }[],
   callbacks: AgentCallbacks,
   abortSignal?: AbortSignal,
-  overrides?: AgentOverrides
+  overrides?: AgentOverrides,
+  imageUrls?: string[]
 ): Promise<string> {
-  // Fleet workers bypass Overmind and go directly to the agent engine
-  const isFleetDirect = !!overrides?.fleet_agent_id;
+  const url = `${API_BASE}/overmind/chat`;
+  const body: Record<string, unknown> = {
+    message,
+    conversation_id: conversationId,
+    history,
+    ...(overrides?.model && { model: overrides.model }),
+    ...(imageUrls && imageUrls.length > 0 && { image_urls: imageUrls }),
+  };
 
-  let url: string;
-  let body: Record<string, unknown>;
+  const MAX_RETRIES = 2;
+  let lastError: Error | null = null;
 
-  if (isFleetDirect) {
-    // Direct agent access for fleet workers
-    const queryParams = `?fleet_agent_id=${encodeURIComponent(overrides!.fleet_agent_id!)}`;
-    url = `${API_BASE}/agent${queryParams}`;
-    body = {
-      message,
-      conversation_id: conversationId,
-      history,
-      ...(overrides?.system_prompt && { system_prompt: overrides.system_prompt }),
-      ...(overrides?.model && { model: overrides.model }),
-    };
-  } else {
-    // Route through Overmind — the default for all user conversations
-    url = `${API_BASE}/overmind/chat`;
-    body = {
-      message,
-      conversation_id: conversationId,
-      history,
-      ...(overrides?.model && { model: overrides.model }),
-    };
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      callbacks.onStatus?.(0, 20);
+      await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
+
+    try {
+      const finalMessage = await _streamAgent(url, body, callbacks, abortSignal);
+      return finalMessage;
+    } catch (err) {
+      lastError = err as Error;
+      if ((err as Error).name === 'AbortError') throw err;
+      // Don't retry on HTTP errors (4xx/5xx) — only retry on stream/network failures
+      const msg = (err as Error).message || '';
+      if (msg.includes('request failed (4') || msg.includes('request failed (5')) throw err;
+      if (attempt < MAX_RETRIES) {
+        callbacks.onError?.(`Connection interrupted, retrying (${attempt + 1}/${MAX_RETRIES})...`);
+      }
+    }
   }
 
+  throw lastError || new Error('Agent request failed after retries');
+}
+
+async function _streamAgent(
+  url: string,
+  body: Record<string, unknown>,
+  callbacks: AgentCallbacks,
+  abortSignal?: AbortSignal
+): Promise<string> {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -141,6 +205,7 @@ export async function chatWithAgent(
   const decoder = new TextDecoder();
   let buffer = '';
   let finalMessage = '';
+  let receivedDone = false;
 
   try {
     while (true) {
@@ -149,11 +214,12 @@ export async function chatWithAgent(
 
       buffer += decoder.decode(value, { stream: true });
 
-      // Process complete SSE lines
       const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+      buffer = lines.pop() || '';
 
       for (const line of lines) {
+        // Skip keepalive comments
+        if (line.startsWith(':')) continue;
         if (!line.startsWith('data: ')) continue;
 
         const jsonStr = line.slice(6);
@@ -163,7 +229,7 @@ export async function chatWithAgent(
         try {
           event = JSON.parse(jsonStr);
         } catch {
-          continue; // Skip malformed events
+          continue;
         }
 
         switch (event.type) {
@@ -175,6 +241,10 @@ export async function chatWithAgent(
               rules_count: event.rules_count || 0,
               iteration_config: event.iteration_config || { min: 2, max: 5 },
               skills_loaded: event.skills_loaded || [],
+              matched_playbook: event.matched_playbook || null,
+              change_track: event.change_track,
+              change_confidence: event.change_confidence,
+              change_risk: event.change_risk,
               timestamp: event.timestamp || new Date().toISOString(),
             });
             break;
@@ -213,7 +283,28 @@ export async function chatWithAgent(
             callbacks.onError?.(event.content || 'Unknown agent error');
             break;
 
+          case 'job_handoff':
+            callbacks.onJobHandoff?.({
+              job_id: event.job_id || '',
+              title: event.title || '',
+              conversation_id: event.conversation_id,
+            });
+            break;
+
+          case 'playbook_chain_suggestion':
+            callbacks.onPlaybookChain?.({
+              chain: event.chain || [],
+              reasoning: event.reasoning || '',
+              auto_approved: event.auto_approved ?? true,
+            });
+            break;
+
+          case 'heartbeat':
+            callbacks.onHeartbeat?.(event.elapsed_ms || 0);
+            break;
+
           case 'done':
+            receivedDone = true;
             callbacks.onDone?.(event.iterations || 0, event.duration_ms || 0);
             break;
         }
@@ -221,6 +312,16 @@ export async function chatWithAgent(
     }
   } finally {
     reader.releaseLock();
+  }
+
+  // If stream ended without a done event and no message, the connection dropped
+  if (!receivedDone && !finalMessage) {
+    throw new Error('Stream ended unexpectedly');
+  }
+
+  // If we got content but no done event, still deliver the message
+  if (!receivedDone && finalMessage) {
+    callbacks.onDone?.(0, 0);
   }
 
   return finalMessage;

@@ -280,6 +280,9 @@ CREATE TABLE IF NOT EXISTS overmind_recipes (
     iteration_config  JSONB       NOT NULL DEFAULT '{"min": 2, "max": 5}',
     cleanup_profile   TEXT        DEFAULT 'normal',
     llm_tiers         JSONB       DEFAULT '{}',
+    fleet_preference  TEXT        DEFAULT 'auto',
+    skills            JSONB       DEFAULT '[]',
+    model             TEXT        DEFAULT 'coder',
     usage_count       INT         DEFAULT 0,
     last_used_at      TIMESTAMPTZ,
     created_by        TEXT        DEFAULT 'system',
@@ -511,6 +514,11 @@ CREATE INDEX IF NOT EXISTS idx_overmind_fleet_audit_time ON overmind_fleet_audit
 
 -- Add fleet_id FK to existing workers table
 ALTER TABLE overmind_fleet ADD COLUMN IF NOT EXISTS fleet_id UUID REFERENCES overmind_fleets(id) ON DELETE SET NULL;
+
+-- Playbook columns for existing overmind_recipes tables
+ALTER TABLE overmind_recipes ADD COLUMN IF NOT EXISTS fleet_preference TEXT DEFAULT 'auto';
+ALTER TABLE overmind_recipes ADD COLUMN IF NOT EXISTS skills JSONB DEFAULT '[]';
+ALTER TABLE overmind_recipes ADD COLUMN IF NOT EXISTS model TEXT DEFAULT 'coder';
 
 -- ============================================================
 -- Migration complete.

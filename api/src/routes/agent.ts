@@ -1492,9 +1492,31 @@ agentRouter.post('/', async (req: Request, res: Response) => {
 
   let iteration = 0;
 
+  // Abort controller for client disconnect
+  const clientAbort = new AbortController();
+  res.on('close', () => clientAbort.abort());
+
+  // Heartbeat: keeps the SSE connection alive while the LLM is thinking
+  const HEARTBEAT_INTERVAL_MS = 15_000;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      sendSSE(res, { type: 'heartbeat', ts: Date.now(), elapsed_ms: Date.now() - startTime });
+    }, HEARTBEAT_INTERVAL_MS);
+  };
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  };
+
   try {
     while (iteration < MAX_ITERATIONS) {
       iteration++;
+
+      if (clientAbort.signal.aborted) {
+        logActivity('agent', 'info', 'Client disconnected — stopping agent loop');
+        break;
+      }
 
       // Check total timeout
       if (Date.now() - startTime > MAX_AGENT_TIMEOUT_MS) {
@@ -1505,6 +1527,9 @@ agentRouter.post('/', async (req: Request, res: Response) => {
       logActivity('agent', 'thinking', `Agent loop iteration ${iteration}/${MAX_ITERATIONS}`);
       sendSSE(res, { type: 'status', iteration, max_iterations: MAX_ITERATIONS });
 
+      // Start heartbeat before LLM call so the frontend knows we're alive
+      startHeartbeat();
+
       // Call LLM with tools
       const result = await chatCompletionWithTools({
         model,
@@ -1512,7 +1537,10 @@ agentRouter.post('/', async (req: Request, res: Response) => {
         tools,
         max_tokens: 16384,
         temperature: 0.5,
+        abortSignal: clientAbort.signal,
       });
+
+      stopHeartbeat();
 
       // Check if there are tool calls
       if (result.tool_calls && result.tool_calls.length > 0) {
@@ -1608,16 +1636,23 @@ agentRouter.post('/', async (req: Request, res: Response) => {
       });
     }
   } catch (err) {
+    stopHeartbeat();
     const errorMsg = (err as Error).message;
     logActivity('agent', 'error', `Agent failed: ${errorMsg}`);
-    sendSSE(res, { type: 'error', content: `Agent error: ${errorMsg}` });
+    if (!clientAbort.signal.aborted) {
+      sendSSE(res, { type: 'error', content: `Agent error: ${errorMsg}` });
+    }
+  } finally {
+    stopHeartbeat();
   }
 
-  sendSSE(res, {
-    type: 'done',
-    iterations: iteration,
-    duration_ms: Date.now() - startTime,
-  });
+  if (!clientAbort.signal.aborted) {
+    sendSSE(res, {
+      type: 'done',
+      iterations: iteration,
+      duration_ms: Date.now() - startTime,
+    });
+  }
   res.end();
 });
 

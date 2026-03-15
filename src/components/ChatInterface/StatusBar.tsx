@@ -5,7 +5,6 @@ interface StatusBarProps {
   agentRunning: boolean;
   llmAvailable: boolean | null;
   messageCount: number;
-  onShowLaunchAgent: () => void;
   onShowSoundSettings: () => void;
   onRetryConnection: () => void;
 }
@@ -15,7 +14,6 @@ export function StatusBar({
   agentRunning,
   llmAvailable,
   messageCount,
-  onShowLaunchAgent,
   onShowSoundSettings,
   onRetryConnection,
 }: StatusBarProps) {
@@ -59,16 +57,6 @@ export function StatusBar({
         </div>
       </div>
       <div className="flex items-center gap-3">
-        {/* Launch Agent Button */}
-        <button
-          onClick={onShowLaunchAgent}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-800 bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 transition-all cursor-pointer"
-          title="Launch a new fleet agent"
-        >
-          <span className="text-sm leading-none">+</span>
-          New Agent
-        </button>
-
         {/* Sound Settings Button */}
         <button
           onClick={onShowSoundSettings}

@@ -32,6 +32,9 @@ export interface OvRecipe {
   iteration_config: RecipeIterationConfig;
   cleanup_profile: string;
   llm_tiers: Record<string, string>;
+  fleet_preference: string;
+  skills: string[];
+  model: string;
   usage_count: number;
   last_used_at: Date | null;
   created_by: string;
@@ -71,6 +74,9 @@ export interface CreateRecipeInput {
   iteration_config?: RecipeIterationConfig;
   cleanup_profile?: string;
   llm_tiers?: Record<string, string>;
+  fleet_preference?: string;
+  skills?: string[];
+  model?: string;
   created_by?: string;
 }
 
@@ -90,6 +96,9 @@ function rowToRecipe(row: any): OvRecipe {
     iteration_config: row.iteration_config || { min: 2, max: 5 },
     cleanup_profile: row.cleanup_profile || 'normal',
     llm_tiers: row.llm_tiers || {},
+    fleet_preference: row.fleet_preference || 'auto',
+    skills: Array.isArray(row.skills) ? row.skills : [],
+    model: row.model || 'coder',
     usage_count: row.usage_count || 0,
     last_used_at: row.last_used_at || null,
     created_by: row.created_by || 'system',
@@ -104,8 +113,8 @@ function rowToRecipe(row: any): OvRecipe {
 
 export async function createRecipe(input: CreateRecipeInput): Promise<OvRecipe> {
   const { rows } = await query(
-    `INSERT INTO overmind_recipes (name, description, target_type, tools, rule_overrides, steps, iteration_config, cleanup_profile, llm_tiers, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO overmind_recipes (name, description, target_type, tools, rule_overrides, steps, iteration_config, cleanup_profile, llm_tiers, fleet_preference, skills, model, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
       input.name,
@@ -117,6 +126,9 @@ export async function createRecipe(input: CreateRecipeInput): Promise<OvRecipe> 
       JSON.stringify(input.iteration_config || { min: 2, max: 5 }),
       input.cleanup_profile || 'normal',
       JSON.stringify(input.llm_tiers || {}),
+      input.fleet_preference || 'auto',
+      JSON.stringify(input.skills || []),
+      input.model || 'coder',
       input.created_by || 'system',
     ]
   );
@@ -186,6 +198,18 @@ export async function updateRecipe(
     fields.push(`llm_tiers = $${idx++}`);
     values.push(JSON.stringify(updates.llm_tiers));
   }
+  if (updates.fleet_preference !== undefined) {
+    fields.push(`fleet_preference = $${idx++}`);
+    values.push(updates.fleet_preference);
+  }
+  if (updates.skills !== undefined) {
+    fields.push(`skills = $${idx++}`);
+    values.push(JSON.stringify(updates.skills));
+  }
+  if (updates.model !== undefined) {
+    fields.push(`model = $${idx++}`);
+    values.push(updates.model);
+  }
 
   if (fields.length === 0) return getRecipe(id);
 
@@ -253,6 +277,67 @@ export async function findMatchingRecipes(
     [limit]
   );
   return fallback.map(rowToRecipe);
+}
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'has',
+  'been', 'will', 'can', 'want', 'need', 'like', 'just', 'make', 'get',
+  'use', 'some', 'could', 'would', 'should', 'about', 'into', 'also',
+  'please', 'help', 'something', 'what', 'how', 'why', 'when', 'where',
+]);
+
+/**
+ * Match playbooks against a free-text user message.
+ * Scores each playbook by keyword overlap with its name, description,
+ * target_type, tools, and skills. Returns the best match if the score
+ * exceeds a threshold, otherwise null.
+ *
+ * Also returns the full recipe list so callers can avoid a second query.
+ */
+export async function matchPlaybookToIntent(
+  message: string
+): Promise<{ match: OvRecipe | null; allRecipes: OvRecipe[] }> {
+  if (!message || message.trim().length < 5) {
+    return { match: null, allRecipes: [] };
+  }
+
+  const { rows } = await query(
+    'SELECT * FROM overmind_recipes ORDER BY usage_count DESC, updated_at DESC'
+  );
+  const allRecipes = rows.map(rowToRecipe);
+  if (allRecipes.length === 0) return { match: null, allRecipes };
+
+  const words = message.toLowerCase().split(/\s+/)
+    .filter(w => w.length >= 4 && !STOP_WORDS.has(w));
+
+  if (words.length === 0) return { match: null, allRecipes };
+
+  let bestScore = 0;
+  let bestRecipe: OvRecipe | null = null;
+
+  for (const recipe of allRecipes) {
+    const haystack = [
+      recipe.name,
+      recipe.description,
+      recipe.target_type.replace(/_/g, ' '),
+      ...recipe.tools,
+      ...recipe.skills,
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    let score = 0;
+    for (const word of words) {
+      if (haystack.includes(word)) score++;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRecipe = recipe;
+    }
+  }
+
+  return { match: bestScore >= 3 ? bestRecipe : null, allRecipes };
 }
 
 /**
@@ -330,6 +415,9 @@ export const BUILT_IN_RECIPES: CreateRecipeInput[] = [
     },
     cleanup_profile: 'strict',
     llm_tiers: { plan: 'heavy', build: 'coder', cleanup: 'light', review: 'medium' },
+    fleet_preference: 'auto',
+    skills: ['spec-writer', 'focused-builder', 'iterate', 'preflight-app'],
+    model: 'coder',
   },
   {
     name: 'Landing Page',
@@ -353,6 +441,9 @@ export const BUILT_IN_RECIPES: CreateRecipeInput[] = [
     },
     cleanup_profile: 'normal',
     llm_tiers: { plan: 'medium', build: 'coder', cleanup: 'light' },
+    fleet_preference: 'auto',
+    skills: ['focused-builder', 'iterate'],
+    model: 'coder',
   },
   {
     name: 'API Backend',
@@ -377,5 +468,8 @@ export const BUILT_IN_RECIPES: CreateRecipeInput[] = [
     },
     cleanup_profile: 'strict',
     llm_tiers: { plan: 'heavy', build: 'coder', cleanup: 'coder', review: 'heavy' },
+    fleet_preference: 'auto',
+    skills: ['focused-builder', 'iterate'],
+    model: 'coder',
   },
 ];

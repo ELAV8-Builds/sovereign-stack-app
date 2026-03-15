@@ -1,7 +1,6 @@
 import toast from "react-hot-toast";
 import type { Conversation } from "@/lib/conversations";
 import { markConversationRead } from "@/lib/unread";
-import type { FleetAgent } from "@/lib/fleet";
 
 // ---- Conversation Context Menu -----------------------------------------------
 
@@ -82,58 +81,6 @@ export function ConversationContextMenu({
         className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
       >
         🗑 Delete
-      </button>
-    </div>
-  );
-}
-
-// ---- Agent Context Menu ------------------------------------------------------
-
-interface AgentContextMenuProps {
-  agentContextMenu: { id: string; x: number; y: number };
-  fleetAgents: FleetAgent[];
-  onClose: () => void;
-  onSelectFleetAgent: (agent: FleetAgent | null) => void;
-  onNewConversation: (agentId?: string | null) => void;
-  onDeleteAgent: (agentId: string) => void;
-}
-
-export function AgentContextMenu({
-  agentContextMenu,
-  fleetAgents,
-  onClose,
-  onSelectFleetAgent,
-  onNewConversation,
-  onDeleteAgent,
-}: AgentContextMenuProps) {
-  const agent = fleetAgents.find((a) => a.id === agentContextMenu.id);
-  if (!agent) return null;
-
-  return (
-    <div
-      className="fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[140px]"
-      style={{ left: agentContextMenu.x, top: agentContextMenu.y }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <button
-        onClick={() => {
-          onSelectFleetAgent(agent);
-          onNewConversation(agent.id);
-          onClose();
-        }}
-        className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700 transition-colors"
-      >
-        💬 New Conversation
-      </button>
-      <div className="border-t border-slate-700 my-1" />
-      <button
-        onClick={() => {
-          onDeleteAgent(agent.id);
-          onClose();
-        }}
-        className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
-      >
-        🗑 Delete Agent
       </button>
     </div>
   );

@@ -1,39 +1,29 @@
 /**
  * Overmind — Main Control Panel
  *
- * The brain of Sovereign Stack. Provides visibility and control over:
- * - Fleet workers (native Claude Code sessions)
- * - Jobs (multi-step build tasks)
- * - System (orchestrator health)
- *
- * Uses WebSocket for real-time updates with REST polling as fallback.
+ * Three-tab layout:
+ * - Fleet: Unified command center (machines, workers, jobs, activity)
+ * - Playbooks: Create and manage build playbooks
+ * - System: Health, safety, Slack, orchestrator config
  */
 import { useState } from 'react';
-import { FleetView } from './FleetView';
-import { JobsView } from './JobsView';
-import { RulesView } from './RulesView';
+import { PlaybooksView } from './PlaybooksView';
+import { SkillsView } from './SkillsView';
 import { SystemView } from './SystemView';
-import { DeployHistory } from './DeployHistory';
-import { FleetsView } from './FleetsView';
+import { FleetCommandCenter } from './FleetCommandCenter';
 import { useOvermindSocket } from '@/lib/useOvermindSocket';
 
-type OvTab = 'fleets' | 'fleet' | 'jobs' | 'rules' | 'deploys' | 'system';
+type OvTab = 'fleet' | 'playbooks' | 'skills' | 'system';
 
 export function Overmind() {
-  const [activeTab, setActiveTab] = useState<OvTab>('fleets');
-
-  // Real-time WebSocket connection to Overmind event bridge
+  const [activeTab, setActiveTab] = useState<OvTab>('fleet');
   const { connected, snapshot, lastEvent, eventCount, reconnect } = useOvermindSocket(true);
-
-  // Derive orchestrator status from snapshot
   const orchStatus = snapshot?.orchestrator || null;
 
   const tabs: { id: OvTab; label: string; icon: string }[] = [
-    { id: 'fleets', label: 'Fleets', icon: '🌐' },
-    { id: 'fleet', label: 'Workers', icon: '🖥' },
-    { id: 'jobs', label: 'Jobs', icon: '📋' },
-    { id: 'rules', label: 'Rules', icon: '📏' },
-    { id: 'deploys', label: 'Deploys', icon: '🚀' },
+    { id: 'fleet', label: 'Fleet', icon: '🌐' },
+    { id: 'playbooks', label: 'Playbooks', icon: '📦' },
+    { id: 'skills', label: 'Skills', icon: '🧩' },
     { id: 'system', label: 'System', icon: '⚙' },
   ];
 
@@ -53,7 +43,6 @@ export function Overmind() {
           </div>
         </div>
 
-        {/* Connection status */}
         <div className="flex items-center gap-2">
           <button
             onClick={reconnect}
@@ -69,7 +58,7 @@ export function Overmind() {
         </div>
       </div>
 
-      {/* Sub-tabs */}
+      {/* Tabs */}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-white/[0.04]">
         {tabs.map((tab) => (
           <button
@@ -89,11 +78,9 @@ export function Overmind() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        {activeTab === 'fleets' && <FleetsView lastEvent={lastEvent} />}
-        {activeTab === 'fleet' && <FleetView lastEvent={lastEvent} />}
-        {activeTab === 'jobs' && <JobsView lastEvent={lastEvent} />}
-        {activeTab === 'rules' && <RulesView lastEvent={lastEvent} />}
-        {activeTab === 'deploys' && <DeployHistory />}
+        {activeTab === 'fleet' && <FleetCommandCenter lastEvent={lastEvent} />}
+        {activeTab === 'playbooks' && <PlaybooksView lastEvent={lastEvent} />}
+        {activeTab === 'skills' && <SkillsView />}
         {activeTab === 'system' && <SystemView lastEvent={lastEvent} />}
       </div>
     </div>

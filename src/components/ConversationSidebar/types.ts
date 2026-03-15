@@ -1,41 +1,27 @@
 import type { Conversation } from "@/lib/conversations";
-import type { FleetAgent, AgentJob } from "@/lib/fleet";
 
 export interface ConversationSidebarProps {
   activeConversationId: string | null;
-  onSelectConversation: (id: string, agentId?: string | null) => void;
-  onNewConversation: (agentId?: string | null) => void;
-  onSelectFleetAgent: (agent: FleetAgent | null) => void;
-  activeFleetAgentId: string | null;
+  onSelectConversation: (id: string) => void;
+  onNewConversation: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onShowLaunchAgent: () => void;
 }
 
-// Shared prop type for sub-components that need access to sidebar state/actions
 export interface SidebarContext {
   conversations: Conversation[];
-  fleetAgents: FleetAgent[];
   activeConversationId: string | null;
-  activeFleetAgentId: string | null;
   unreadIds: Set<string>;
-  collapsedAgents: Set<string>;
-  completedAgents: Set<string>;
-  agentJobs: Map<string, AgentJob>;
   editingId: string | null;
   editTitle: string;
   editInputRef: React.RefObject<HTMLInputElement | null>;
   setEditingId: (id: string | null) => void;
   setEditTitle: (title: string) => void;
   setContextMenu: (menu: { id: string; x: number; y: number } | null) => void;
-  setAgentContextMenu: (menu: { id: string; x: number; y: number } | null) => void;
-  handleSelectConv: (convId: string, agentId?: string | null) => void;
+  handleSelectConv: (convId: string) => void;
   handleRename: (id: string) => void;
-  toggleAgentCollapsed: (agentId: string) => void;
-  onSelectConversation: (id: string, agentId?: string | null) => void;
-  onNewConversation: (agentId?: string | null) => void;
-  onSelectFleetAgent: (agent: FleetAgent | null) => void;
-  onShowLaunchAgent: () => void;
+  onSelectConversation: (id: string) => void;
+  onNewConversation: () => void;
 }
 
 // ---- Time formatting --------------------------------------------------------

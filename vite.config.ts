@@ -51,11 +51,16 @@ export default defineConfig(async () => ({
       "/api/sovereign": {
         target: "http://127.0.0.1:3100",
         changeOrigin: true,
+        timeout: 0,
         rewrite: (path: string) => path.replace(/^\/api\/sovereign/, "/api"),
         configure: (proxy) => {
           proxy.on("proxyReq", (_proxyReq, _req, res) => {
             // @ts-expect-error disable buffering for SSE
             res.socket?.setNoDelay(true);
+          });
+          proxy.on("proxyRes", (_proxyRes, _req, res) => {
+            // Disable socket timeout for SSE streams
+            res.socket?.setTimeout(0);
           });
         },
       },
