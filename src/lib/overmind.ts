@@ -574,6 +574,22 @@ export async function getRecentConversations(limit = 10): Promise<OvConversation
   return data?.conversations || [];
 }
 
+export interface ActiveSession {
+  conversation_id: string;
+  title: string | null;
+  tool_calls: number;
+  last_activity: string;
+  started_at: string;
+  duration_s: number;
+  current_iteration: number;
+  last_tool: string | null;
+}
+
+export async function getActiveSessions(): Promise<ActiveSession[]> {
+  const data = await apiGet<{ sessions: ActiveSession[] }>('/overmind/chat/active');
+  return data?.sessions || [];
+}
+
 // ─── Chained Job API ─────────────────────────────────────────────
 
 export async function createChainedJob(prompt: string, recipeIds: string[]): Promise<unknown> {

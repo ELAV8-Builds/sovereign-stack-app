@@ -28,6 +28,7 @@ import {
   unsuspendFleet,
   getDeployHistory,
   getRecentConversations,
+  getActiveSessions,
   type FleetDashboard,
   type FleetWorker,
   type FleetStatus,
@@ -36,6 +37,7 @@ import {
   type OvJob,
   type OvDeployRecord,
   type OvConversation,
+  type ActiveSession,
 } from '@/lib/overmind';
 import type { OvermindEvent } from '@/lib/useOvermindSocket';
 
@@ -81,6 +83,7 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
   const [loading, setLoading] = useState(true);
   const [deploys, setDeploys] = useState<OvDeployRecord[]>([]);
   const [conversations, setConversations] = useState<OvConversation[]>([]);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [activityLog, setActivityLog] = useState<OvermindEvent[]>([]);
   const [expandedMachine, setExpandedMachine] = useState<string | null>(null);
   const [expandedWorker, setExpandedWorker] = useState<string | null>(null);
@@ -96,6 +99,7 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
       getOvJobs(),
       getDeployHistory(),
       getRecentConversations(5),
+      getActiveSessions(),
     ]);
     const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
       r.status === 'fulfilled' ? r.value : fallback;
@@ -108,6 +112,7 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
     setJobs(val(results[4], []));
     setDeploys(val(results[5], []) || []);
     setConversations(val(results[6], []));
+    setActiveSessions(val(results[7], []));
     setLoading(false);
   }, []);
 
@@ -150,12 +155,44 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
 
   return (
     <div className="p-4 space-y-5 overflow-auto">
+      {/* ═══ Active Sessions ═══ */}
+      {activeSessions.length > 0 && (
+        <div className="border border-blue-500/20 rounded-xl bg-blue-500/[0.03] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-blue-500/10">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            <h2 className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Working Now</h2>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">{activeSessions.length}</span>
+          </div>
+          <div className="divide-y divide-white/[0.03]">
+            {activeSessions.map(s => {
+              const mins = Math.floor(s.duration_s / 60);
+              const secs = s.duration_s % 60;
+              return (
+                <div key={s.conversation_id} className="px-4 py-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
+                    <span className="text-xs font-medium text-white truncate flex-1">{s.title || 'Agent session'}</span>
+                    <span className="text-[10px] text-blue-400 font-mono flex-shrink-0">{mins}m {secs}s</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] text-slate-500 pl-3.5">
+                    <span>Iteration {s.current_iteration}</span>
+                    <span>{s.tool_calls} tool calls</span>
+                    {s.last_tool && <span className="text-slate-400 font-mono">{s.last_tool}</span>}
+                    <span className="ml-auto text-slate-600">{timeAgo(s.last_activity)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ═══ Overview Stats ═══ */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <StatCard label="Machines" value={dashboard?.total || 0} />
         <StatCard label="Healthy" value={dashboard?.healthy || 0} color="text-emerald-400" />
         <StatCard label="Workers" value={workerStatus?.total || 0} sub={`/ ${safety?.max_workers || 5} cap`} color="text-blue-400" />
-        <StatCard label="Active Jobs" value={activeJobs.length} color={activeJobs.length > 0 ? 'text-indigo-400' : undefined} pulse={activeJobs.length > 0} />
+        <StatCard label="Active" value={activeSessions.length > 0 ? activeSessions.length : activeJobs.length} color={activeSessions.length > 0 ? 'text-blue-400' : activeJobs.length > 0 ? 'text-indigo-400' : undefined} pulse={activeSessions.length > 0 || activeJobs.length > 0} sub={activeSessions.length > 0 ? 'working' : undefined} />
         <StatCard label="Load" value={`${workerStatus?.total_load || 0}/${workerStatus?.total_capacity || 0}`} color="text-cyan-400" />
         <StatCard label="Issues" value={issues} color={issues > 0 ? 'text-amber-400' : 'text-emerald-400'} />
       </div>
