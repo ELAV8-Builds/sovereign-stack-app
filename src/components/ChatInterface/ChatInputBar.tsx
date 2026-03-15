@@ -318,7 +318,7 @@ export function ChatInputBar({
       <QueueDisplay queue={queue} onClearAll={onClearQueue} onRemove={onRemoveFromQueue} />
 
       <div
-        className={`border-t bg-slate-900/80 backdrop-blur p-4 transition-colors ${
+        className={`border-t bg-slate-900/80 backdrop-blur p-4 flex-shrink-0 transition-colors ${
           isDragging ? "border-blue-500 bg-blue-900/10" : "border-slate-800"
         }`}
         onDrop={handleDrop}
@@ -405,7 +405,7 @@ export function ChatInputBar({
                   : "Ask Overmind anything... (type @ for mentions)"
               }
               rows={1}
-              className={`w-full bg-slate-800 border rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-all duration-200 ${
+              className={`w-full bg-slate-800 border rounded-xl px-4 py-3 pr-12 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 resize-none transition-colors duration-200 ${
                 agentRunning && input.trim() ? "border-amber-600/50" : "border-slate-700"
               }`}
               style={{ minHeight: "44px", maxHeight: "150px" }}

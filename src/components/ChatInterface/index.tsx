@@ -288,8 +288,18 @@ export function ChatInterface() {
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     const textarea = e.target;
-    textarea.style.height = "auto";
-    textarea.style.height = Math.min(textarea.scrollHeight, 150) + "px";
+    // Only resize if content might have changed height (newline added/removed
+    // or overflow state changed). Collapsing to "auto" first is necessary to
+    // get the true scrollHeight, but we hide the reflow inside a rAF so the
+    // browser never paints the collapsed frame.
+    requestAnimationFrame(() => {
+      const prev = textarea.style.height;
+      textarea.style.height = "auto";
+      const next = Math.min(textarea.scrollHeight, 150) + "px";
+      textarea.style.height = next;
+      // Skip the transition when the height didn't actually change
+      if (prev === next) return;
+    });
   };
 
   // ── Agent stop / interrupt / queue ─────────────────────────────────
