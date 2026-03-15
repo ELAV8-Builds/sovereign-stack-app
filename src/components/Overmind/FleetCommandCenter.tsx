@@ -15,8 +15,6 @@ import {
   getFleetWorkers,
   getFleetStatus,
   getFleetSafety,
-  getOvJobs,
-  cancelOvJob,
   removeFleetMachine,
   removeFleetWorker,
   requestWorkerCheckpoint,
@@ -34,7 +32,6 @@ import {
   type FleetStatus,
   type FleetSafety,
   type FleetMachine,
-  type OvJob,
   type OvDeployRecord,
   type OvConversation,
   type ActiveSession,
@@ -56,15 +53,6 @@ function timeAgo(ts: string | null): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-const JOB_STATUS: Record<string, { color: string; bg: string; label: string }> = {
-  pending: { color: 'text-slate-400', bg: 'bg-slate-500/20', label: 'Pending' },
-  planning: { color: 'text-indigo-400', bg: 'bg-indigo-500/20', label: 'Planning' },
-  running: { color: 'text-blue-400', bg: 'bg-blue-500/20', label: 'Running' },
-  needs_review: { color: 'text-amber-400', bg: 'bg-amber-500/20', label: 'Review' },
-  completed: { color: 'text-emerald-400', bg: 'bg-emerald-500/20', label: 'Done' },
-  failed: { color: 'text-red-400', bg: 'bg-red-500/20', label: 'Failed' },
-};
-
 const MACHINE_STATUS: Record<string, { dot: string; text: string }> = {
   healthy: { dot: 'bg-emerald-400', text: 'text-emerald-400' },
   unhealthy: { dot: 'bg-amber-400', text: 'text-amber-400' },
@@ -79,7 +67,6 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
   const [workers, setWorkers] = useState<FleetWorker[]>([]);
   const [workerStatus, setWorkerStatus] = useState<FleetStatus | null>(null);
   const [safety, setSafety] = useState<FleetSafety | null>(null);
-  const [jobs, setJobs] = useState<OvJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [deploys, setDeploys] = useState<OvDeployRecord[]>([]);
   const [conversations, setConversations] = useState<OvConversation[]>([]);
@@ -87,7 +74,6 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
   const [activityLog, setActivityLog] = useState<OvermindEvent[]>([]);
   const [expandedMachine, setExpandedMachine] = useState<string | null>(null);
   const [expandedWorker, setExpandedWorker] = useState<string | null>(null);
-  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [showAddWorker, setShowAddWorker] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -96,7 +82,6 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
       getFleetWorkers(),
       getFleetStatus(),
       getFleetSafety(),
-      getOvJobs(),
       getDeployHistory(),
       getRecentConversations(5),
       getActiveSessions(),
@@ -109,10 +94,9 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
     setWorkers(val(results[1], []));
     setWorkerStatus(val(results[2], null));
     setSafety(val(results[3], null));
-    setJobs(val(results[4], []));
-    setDeploys(val(results[5], []) || []);
-    setConversations(val(results[6], []));
-    setActiveSessions(val(results[7], []));
+    setDeploys(val(results[4], []) || []);
+    setConversations(val(results[5], []));
+    setActiveSessions(val(results[6], []));
     setLoading(false);
   }, []);
 
@@ -149,8 +133,6 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
     );
   }
 
-  const activeJobs = jobs.filter(j => ['pending', 'planning', 'running', 'needs_review'].includes(j.status));
-  const recentJobs = jobs.filter(j => ['completed', 'failed'].includes(j.status)).slice(0, 5);
   const issues = (dashboard?.unhealthy || 0) + (dashboard?.offline || 0) + (dashboard?.suspended || 0);
 
   return (
@@ -192,7 +174,7 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
         <StatCard label="Machines" value={dashboard?.total || 0} />
         <StatCard label="Healthy" value={dashboard?.healthy || 0} color="text-emerald-400" />
         <StatCard label="Workers" value={workerStatus?.total || 0} sub={`/ ${safety?.max_workers || 5} cap`} color="text-blue-400" />
-        <StatCard label="Active" value={activeSessions.length > 0 ? activeSessions.length : activeJobs.length} color={activeSessions.length > 0 ? 'text-blue-400' : activeJobs.length > 0 ? 'text-indigo-400' : undefined} pulse={activeSessions.length > 0 || activeJobs.length > 0} sub={activeSessions.length > 0 ? 'working' : undefined} />
+        <StatCard label="Active" value={activeSessions.length} color={activeSessions.length > 0 ? 'text-blue-400' : undefined} pulse={activeSessions.length > 0} sub={activeSessions.length > 0 ? 'working' : undefined} />
         <StatCard label="Load" value={`${workerStatus?.total_load || 0}/${workerStatus?.total_capacity || 0}`} color="text-cyan-400" />
         <StatCard label="Issues" value={issues} color={issues > 0 ? 'text-amber-400' : 'text-emerald-400'} />
       </div>
@@ -282,39 +264,7 @@ export function FleetCommandCenter({ lastEvent }: FleetCommandCenterProps) {
         )}
       </Section>
 
-      {/* ═══ Active Jobs ═══ */}
-      <Section
-        title="Active Jobs"
-        count={activeJobs.length}
-        pulse={activeJobs.length > 0}
-      >
-        {activeJobs.length === 0 ? (
-          <EmptyState icon="📋" message="No active jobs" sub="Jobs appear here when agents are working" />
-        ) : (
-          <div className="space-y-1.5">
-            {activeJobs.map(job => (
-              <JobRow
-                key={job.id}
-                job={job}
-                expanded={expandedJob === job.id}
-                onToggle={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
-                onCancel={async () => { try { await cancelOvJob(job.id); toast.success(`Cancelled: ${job.title}`); refresh(); } catch (err) { toast.error((err as Error).message); } }}
-              />
-            ))}
-          </div>
-        )}
-      </Section>
-
-      {/* ═══ Recent Jobs ═══ */}
-      {recentJobs.length > 0 && (
-        <Section title="Recent Jobs" count={recentJobs.length}>
-          <div className="space-y-1">
-            {recentJobs.map(job => (
-              <JobRow key={job.id} job={job} compact />
-            ))}
-          </div>
-        </Section>
-      )}
+      {/* ═══ Recent Conversations ═══ */}
 
       {/* ═══ Recent Deploys ═══ */}
       {deploys.length > 0 && (
@@ -533,101 +483,6 @@ function WorkerRow({ worker, expanded, onToggle, onCheckpoint, onRestart, onStop
           <button onClick={onRemove} className="text-[10px] px-2.5 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
             Remove from fleet
           </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Job Row ─────────────────────────────────────────────────────
-
-function JobRow({ job, expanded, onToggle, onCancel, compact }: {
-  job: OvJob;
-  expanded?: boolean;
-  onToggle?: () => void;
-  onCancel?: () => void;
-  compact?: boolean;
-}) {
-  const sc = JOB_STATUS[job.status] || JOB_STATUS.pending;
-  const isActive = ['pending', 'planning', 'running'].includes(job.status);
-
-  if (compact) {
-    return (
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-white/[0.03] last:border-0">
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${sc.bg} ${sc.color}`}>{sc.label}</span>
-        <span className="text-[11px] text-slate-400 flex-1 truncate">{job.title}</span>
-        <span className="text-[10px] text-slate-600">{timeAgo(job.updated_at || job.created_at)}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div
-        onClick={onToggle}
-        className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition-colors cursor-pointer border-b border-white/[0.03] last:border-0"
-      >
-        <span className={`text-[9px] px-2 py-0.5 rounded font-medium ${sc.bg} ${sc.color}`}>{sc.label}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-white truncate">{job.title}</span>
-            {isActive && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
-          </div>
-          {job.description && (
-            <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{job.description}</p>
-          )}
-        </div>
-        <span className="text-[10px] text-slate-600">{timeAgo(job.created_at)}</span>
-        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-          {isActive && onCancel && (
-            <button onClick={onCancel} className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
-              Cancel
-            </button>
-          )}
-        </div>
-        <span className="text-[9px] text-slate-600">{expanded ? '▾' : '▸'}</span>
-      </div>
-      {expanded && (
-        <div className="px-4 py-3 bg-black/20 border-b border-white/[0.03]">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
-            <div>
-              <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Source</div>
-              <div className="text-slate-400">{job.source}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Created By</div>
-              <div className="text-slate-400">{job.created_by}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">ID</div>
-              <div className="text-slate-400 font-mono">{job.id}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Created</div>
-              <div className="text-slate-400">{new Date(job.created_at).toLocaleString()}</div>
-            </div>
-          </div>
-          {/* Status timeline */}
-          <div className="mt-3 flex items-center gap-1">
-            {['pending', 'planning', 'running', 'completed'].map((step, i) => {
-              const order = ['pending', 'planning', 'running', 'needs_review', 'completed'];
-              const cur = order.indexOf(job.status);
-              const idx = order.indexOf(step);
-              const done = idx < cur;
-              const active = step === job.status;
-              return (
-                <div key={step} className="flex items-center gap-1">
-                  <div className={`w-2 h-2 rounded-full ${
-                    job.status === 'failed' && active ? 'bg-red-400' :
-                    active ? 'bg-blue-400 animate-pulse' :
-                    done ? 'bg-emerald-400' : 'bg-slate-700'
-                  }`} />
-                  <span className={`text-[10px] ${active ? 'text-white font-medium' : done ? 'text-slate-400' : 'text-slate-600'}`}>{step}</span>
-                  {i < 3 && <span className="text-slate-700 text-[10px] mx-0.5">→</span>}
-                </div>
-              );
-            })}
-          </div>
         </div>
       )}
     </div>
